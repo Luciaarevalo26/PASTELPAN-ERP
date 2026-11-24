@@ -56,6 +56,7 @@ div.stButton > button:hover {
 # ==========================================
 
 def obtener_excel():
+
     contenido = st.session_state.get("excel_bytes")
 
     if contenido is None:
@@ -68,17 +69,78 @@ def obtener_excel():
 
 
 def leer_hoja(nombre, columnas=None):
+
     excel = obtener_excel()
 
     if excel is None or nombre not in excel.sheet_names:
         return pd.DataFrame()
 
-    return pd.read_excel(
-        excel,
-        sheet_name=nombre,
-        header=2,
-        usecols=columnas
-    )
+    try:
+        return pd.read_excel(
+            excel,
+            sheet_name=nombre,
+            header=2,
+            usecols=columnas
+        )
+
+    except Exception:
+        return pd.DataFrame()
+
+
+# ==========================================
+# FUNCIÓN GENERAL PARA GRÁFICOS
+# ==========================================
+
+def mostrar_grafico_registros(datos, titulo):
+
+    if datos is None or datos.empty:
+        st.info("No hay información suficiente para generar el gráfico.")
+        return
+
+    datos = datos.copy()
+
+    columnas_numericas = datos.select_dtypes(
+        include="number"
+    ).columns.tolist()
+
+    columnas_categoricas = [
+        columna for columna in datos.columns
+        if columna not in columnas_numericas
+        and 1 < datos[columna].nunique(dropna=True) <= 30
+    ]
+
+    st.markdown(f"#### {titulo}")
+
+    if columnas_categoricas and columnas_numericas:
+
+        categoria = columnas_categoricas[0]
+        valor = columnas_numericas[0]
+
+        grafico = (
+            datos.groupby(categoria)[valor]
+            .sum()
+            .sort_values(ascending=False)
+        )
+
+        st.bar_chart(grafico)
+
+    elif columnas_categoricas:
+
+        categoria = columnas_categoricas[0]
+
+        grafico = datos[categoria].value_counts()
+
+        st.bar_chart(grafico)
+
+    elif columnas_numericas:
+
+        st.bar_chart(datos[columnas_numericas])
+
+    else:
+
+        st.info(
+            "No se encontraron columnas adecuadas para representar gráficamente."
+        )
 
 
 # ==========================================
@@ -118,6 +180,7 @@ archivo = st.sidebar.file_uploader(
 )
 
 if archivo is not None:
+
     st.session_state["excel_bytes"] = archivo.getvalue()
     st.session_state["excel_nombre"] = archivo.name
 
@@ -247,7 +310,6 @@ if seccion == "Inicio":
 # INFORMACIÓN
 # ==========================================
 
-
 elif seccion == "Información":
 
     st.title("🏢 Información de PASTELPAN")
@@ -277,9 +339,9 @@ elif seccion == "Información":
         "⚙️ Proceso de fabricación"
     ])
 
-    # ======================================
+    # --------------------------------------
     # DATOS GENERALES
-    # ======================================
+    # --------------------------------------
 
     with tab1:
 
@@ -308,9 +370,32 @@ elif seccion == "Información":
                 st.markdown(f"**{campo}**")
                 st.write(valor)
 
-    # ======================================
+        st.divider()
+
+        st.subheader("📍 Sede principal de PASTELPAN")
+
+        st.write(
+            "Conoce la ubicación de nuestra sede principal en Cajamarca."
+        )
+
+        st.components.v1.html(
+            """
+            <iframe
+                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1176.948056499078!2d-78.52059577910234!3d-7.153077470205614!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x91b25bdac5d30ed7%3A0x3a49f2db85b5efaa!2sPastelPan!5e0!3m2!1ses-419!2spe!4v1795561087245!5m2!1ses-419!2spe"
+                width="100%"
+                height="400"
+                style="border:0; border-radius:15px;"
+                allowfullscreen=""
+                loading="lazy"
+                referrerpolicy="strict-origin-when-cross-origin">
+            </iframe>
+            """,
+            height=420
+        )
+
+    # --------------------------------------
     # PRODUCTOS PRINCIPALES
-    # ======================================
+    # --------------------------------------
 
     with tab2:
 
@@ -381,9 +466,9 @@ elif seccion == "Información":
             "presentación general de ambos productos."
         )
 
-    # ======================================
+    # --------------------------------------
     # PROCESO DE FABRICACIÓN
-    # ======================================
+    # --------------------------------------
 
     with tab3:
 
@@ -469,11 +554,40 @@ elif seccion == "Información":
             </div>
             """, unsafe_allow_html=True)
 
+        st.divider()
+
+        st.subheader("Diagrama del proceso de fabricación")
+
+        st.graphviz_chart("""
+        digraph Proceso {
+
+            rankdir=LR;
+
+            node [
+                shape=box,
+                style="rounded,filled",
+                fillcolor="#F3E8D5",
+                color="#A9D18E",
+                fontcolor="#59483D"
+            ];
+
+            A [label="Selección y\\npesado"];
+            B [label="Mezclado y\\npreparación"];
+            C [label="Preparación\\nde moldes"];
+            D [label="Horneado"];
+            E [label="Enfriamiento"];
+            F [label="Rellenado y\\narmado"];
+            G [label="Decoración"];
+            H [label="Control de calidad\\ny empaquetado"];
+
+            A -> B -> C -> D -> E -> F -> G -> H;
+        }
+        """, use_container_width=True)
+
         st.success(
             "Resultado: tortas de vainilla y chocolate "
             "terminadas y listas para su comercialización."
         )
-
 
 
 # ==========================================
@@ -515,6 +629,11 @@ elif seccion == "CRM":
                 errors="coerce"
             )
 
+            ventas["Cantidad (unid.)"] = pd.to_numeric(
+                ventas["Cantidad (unid.)"],
+                errors="coerce"
+            )
+
             tab1, tab2 = st.tabs([
                 "📋 Directorio de clientes",
                 "🧾 Atención al cliente y ventas"
@@ -530,7 +649,10 @@ elif seccion == "CRM":
 
                 c1, c2, c3 = st.columns(3)
 
-                c1.metric("Clientes registrados", len(clientes))
+                c1.metric(
+                    "Clientes registrados",
+                    len(clientes)
+                )
 
                 c2.metric(
                     "Clientes con venta",
@@ -541,6 +663,18 @@ elif seccion == "CRM":
                     "Clientes pendientes",
                     (clientes["Estado"] == "Pendiente").sum()
                 )
+
+                st.divider()
+
+                st.subheader("Distribución de clientes por estado")
+
+                grafico_estados = (
+                    clientes["Estado"]
+                    .dropna()
+                    .value_counts()
+                )
+
+                st.bar_chart(grafico_estados)
 
                 st.divider()
 
@@ -653,12 +787,12 @@ elif seccion == "CRM":
 
                 v1, v2, v3 = st.columns(3)
 
-                v1.metric("Registros de venta", len(ventas))
+                v1.metric(
+                    "Registros de venta",
+                    len(ventas)
+                )
 
-                unidades = pd.to_numeric(
-                    ventas["Cantidad (unid.)"],
-                    errors="coerce"
-                ).sum()
+                unidades = ventas["Cantidad (unid.)"].sum()
 
                 v2.metric(
                     "Unidades vendidas",
@@ -674,6 +808,17 @@ elif seccion == "CRM":
 
                 st.divider()
 
+                st.subheader("Ventas por producto")
+
+                grafico_productos = (
+                    ventas.groupby("Producto")["Cantidad (unid.)"]
+                    .sum()
+                )
+
+                st.bar_chart(grafico_productos)
+
+                st.divider()
+
                 st.markdown("#### Filtros de ventas")
 
                 fechas = ventas["Fecha de venta"].dropna()
@@ -683,87 +828,91 @@ elif seccion == "CRM":
                     minimo = fechas.min().date()
                     maximo = fechas.max().date()
 
-                    fecha_inicio, fecha_fin = st.date_input(
+                    periodo = st.date_input(
                         "Periodo de consulta",
                         value=(minimo, maximo),
                         min_value=minimo,
                         max_value=maximo
                     )
 
-                    v4, v5, v6 = st.columns(3)
+                    if isinstance(periodo, tuple) and len(periodo) == 2:
 
-                    with v4:
+                        fecha_inicio, fecha_fin = periodo
 
-                        productos_v = sorted(
-                            ventas["Producto"].dropna().astype(str).unique()
+                        v4, v5, v6 = st.columns(3)
+
+                        with v4:
+
+                            productos_v = sorted(
+                                ventas["Producto"].dropna().astype(str).unique()
+                            )
+
+                            producto_v = st.multiselect(
+                                "Producto",
+                                productos_v,
+                                default=productos_v,
+                                key="producto_venta"
+                            )
+
+                        with v5:
+
+                            asesoras_v = sorted(
+                                ventas["Asesor"].dropna().astype(str).unique()
+                            )
+
+                            asesora_v = st.multiselect(
+                                "Asesora",
+                                asesoras_v,
+                                default=asesoras_v
+                            )
+
+                        with v6:
+
+                            locales = sorted(
+                                ventas["Punto de venta / atención"].dropna().astype(str).unique()
+                            )
+
+                            local_v = st.multiselect(
+                                "Local",
+                                locales,
+                                default=locales
+                            )
+
+                        resultado_v = ventas[
+                            ventas["Fecha de venta"].dt.date.between(
+                                fecha_inicio,
+                                fecha_fin
+                            )
+                            & ventas["Producto"].isin(producto_v)
+                            & ventas["Asesor"].isin(asesora_v)
+                            & ventas["Punto de venta / atención"].isin(local_v)
+                        ].copy()
+
+                        st.metric(
+                            "Ventas encontradas",
+                            len(resultado_v)
                         )
 
-                        producto_v = st.multiselect(
-                            "Producto",
-                            productos_v,
-                            default=productos_v,
-                            key="producto_venta"
+                        st.metric(
+                            "Unidades del periodo",
+                            pd.to_numeric(
+                                resultado_v["Cantidad (unid.)"],
+                                errors="coerce"
+                            ).sum()
                         )
 
-                    with v5:
-
-                        asesoras_v = sorted(
-                            ventas["Asesor"].dropna().astype(str).unique()
+                        st.dataframe(
+                            resultado_v,
+                            use_container_width=True,
+                            hide_index=True
                         )
 
-                        asesora_v = st.multiselect(
-                            "Asesora",
-                            asesoras_v,
-                            default=asesoras_v
+                        st.download_button(
+                            "Descargar ventas filtradas",
+                            data=resultado_v.to_csv(index=False).encode("utf-8-sig"),
+                            file_name="ventas_pastelpan.csv",
+                            mime="text/csv"
                         )
-
-                    with v6:
-
-                        locales = sorted(
-                            ventas["Punto de venta / atención"].dropna().astype(str).unique()
-                        )
-
-                        local_v = st.multiselect(
-                            "Local",
-                            locales,
-                            default=locales
-                        )
-
-                    resultado_v = ventas[
-                        ventas["Fecha de venta"].dt.date.between(
-                            fecha_inicio,
-                            fecha_fin
-                        )
-                        & ventas["Producto"].isin(producto_v)
-                        & ventas["Asesor"].isin(asesora_v)
-                        & ventas["Punto de venta / atención"].isin(local_v)
-                    ].copy()
-
-                    st.metric(
-                        "Ventas encontradas",
-                        len(resultado_v)
-                    )
-
-                    st.metric(
-                        "Unidades del periodo",
-                        pd.to_numeric(
-                            resultado_v["Cantidad (unid.)"],
-                            errors="coerce"
-                        ).sum()
-                    )
-
-                    st.dataframe(
-                        resultado_v,
-                        use_container_width=True,
-                        hide_index=True
-                    )
-
-                    st.download_button(
-                        "Descargar ventas filtradas",
-                        data=resultado_v.to_csv(index=False).encode("utf-8-sig"),
-                        file_name="ventas_pastelpan.csv",
-                        mime="text/csv"
-                    )
 
 
 # ==========================================
@@ -775,7 +924,7 @@ elif seccion == "Producción":
     from openpyxl import load_workbook
     from openpyxl.utils import range_boundaries
 
-    st.title("Producción")
+    st.title("🏭 Producción")
 
     st.markdown(
         "Consulta las tablas de planificación y control de producción de PASTELPAN."
@@ -1002,6 +1151,34 @@ elif seccion == "Producción":
                         height=400
                     )
 
+                    # GRÁFICO DE LA TABLA
+
+                    columnas_numericas = df.select_dtypes(
+                        include="number"
+                    ).columns.tolist()
+
+                    if columnas_numericas and len(df) > 0:
+
+                        st.markdown("**Representación gráfica de los datos**")
+
+                        grafico_df = df.copy()
+
+                        if len(grafico_df.columns) > 0:
+
+                            columna_categoria = grafico_df.columns[0]
+
+                            grafico_df = grafico_df.set_index(
+                                columna_categoria
+                            )
+
+                            grafico_df = grafico_df[
+                                columnas_numericas
+                            ]
+
+                            st.bar_chart(
+                                grafico_df
+                            )
+
                     st.write("")
 
                 categorias = list(cuadros.keys())
@@ -1040,17 +1217,31 @@ elif seccion == "Inventarios":
 
         datos = leer_hoja("Maestro de Materiales")
 
-        st.subheader("Maestro de materiales")
+        if datos.empty:
 
-        st.metric(
-            "Materiales registrados",
-            len(datos)
-        )
+            st.warning("No se encontraron datos en el Maestro de Materiales.")
 
-        st.dataframe(
-            datos,
-            use_container_width=True
-        )
+        else:
+
+            st.subheader("Maestro de materiales")
+
+            st.metric(
+                "Materiales registrados",
+                len(datos)
+            )
+
+            st.dataframe(
+                datos,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.divider()
+
+            mostrar_grafico_registros(
+                datos,
+                "Representación gráfica de materiales"
+            )
 
     else:
 
@@ -1077,15 +1268,38 @@ elif seccion == "Compras y Proveedores":
 
         datos = leer_hoja(opcion)
 
-        st.metric(
-            "Registros encontrados",
-            len(datos)
-        )
+        if datos.empty:
 
-        st.dataframe(
-            datos,
-            use_container_width=True
-        )
+            st.warning("No se encontraron registros en esta sección.")
+
+        else:
+
+            st.metric(
+                "Registros encontrados",
+                len(datos)
+            )
+
+            st.dataframe(
+                datos,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            st.divider()
+
+            if opcion == "Proveedores":
+
+                mostrar_grafico_registros(
+                    datos,
+                    "Distribución de registros de proveedores"
+                )
+
+            else:
+
+                mostrar_grafico_registros(
+                    datos,
+                    "Representación gráfica de órdenes de compra y servicio"
+                )
 
     else:
 
@@ -1099,19 +1313,115 @@ elif seccion == "Compras y Proveedores":
 elif seccion == "Dashboard":
 
     st.title("📊 Dashboard de PASTELPAN")
+    st.caption("Resumen general de gestión empresarial")
 
-    if excel is not None:
+    if excel is None:
 
-        st.success("Archivo maestro conectado.")
-
-        st.info(
-            "Los indicadores principales y gráficos se "
-            "incorporarán después de validar los módulos."
-        )
+        st.warning("Carga el Excel maestro.")
 
     else:
 
-        st.warning("Carga el Excel maestro.")
+        ventas = leer_hoja("Atención al cliente", "A:J")
+        clientes = leer_hoja("Clientes")
+
+        if not ventas.empty:
+
+            ventas["Cantidad (unid.)"] = pd.to_numeric(
+                ventas["Cantidad (unid.)"],
+                errors="coerce"
+            )
+
+            ventas["Fecha de venta"] = pd.to_datetime(
+                ventas["Fecha de venta"],
+                errors="coerce"
+            )
+
+            ventas["Calificación NPS (0-5)"] = pd.to_numeric(
+                ventas["Calificación NPS (0-5)"],
+                errors="coerce"
+            )
+
+            total_ventas = len(ventas)
+
+            total_unidades = ventas["Cantidad (unid.)"].sum()
+
+            promedio = ventas["Calificación NPS (0-5)"].mean()
+
+            c1, c2, c3 = st.columns(3)
+
+            c1.metric(
+                "Registros de venta",
+                f"{total_ventas:,}"
+            )
+
+            c2.metric(
+                "Unidades vendidas",
+                f"{total_unidades:,.0f}"
+            )
+
+            c3.metric(
+                "Calificación promedio",
+                f"{promedio:.2f}/5" if pd.notna(promedio) else "Sin datos"
+            )
+
+            st.divider()
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+
+                st.subheader("Ventas por producto")
+
+                grafico_productos = (
+                    ventas.groupby("Producto")["Cantidad (unid.)"]
+                    .sum()
+                )
+
+                st.bar_chart(grafico_productos)
+
+            with col2:
+
+                st.subheader("Evolución de ventas")
+
+                ventas_mes = ventas.dropna(
+                    subset=["Fecha de venta"]
+                ).copy()
+
+                ventas_mes["Mes"] = (
+                    ventas_mes["Fecha de venta"]
+                    .dt.to_period("M")
+                    .astype(str)
+                )
+
+                grafico_meses = (
+                    ventas_mes.groupby("Mes")["Cantidad (unid.)"]
+                    .sum()
+                    .sort_index()
+                )
+
+                if not grafico_meses.empty:
+
+                    st.line_chart(grafico_meses)
+
+                else:
+
+                    st.info("No hay fechas disponibles para mostrar la evolución.")
+
+            st.divider()
+
+            if not clientes.empty:
+
+                st.subheader("Estado de los clientes")
+
+                st.bar_chart(
+                    clientes["Estado"].value_counts()
+                )
+
+        else:
+
+            st.warning(
+                "No se encontraron registros de ventas para generar el Dashboard."
+            )
 
 
 # ==========================================
