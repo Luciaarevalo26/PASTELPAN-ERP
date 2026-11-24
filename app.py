@@ -644,86 +644,199 @@ elif seccion == "CRM":
 
 elif seccion == "Producción":
 
+    import pandas as pd
+    from io import BytesIO
+    from openpyxl import load_workbook
+    from openpyxl.utils import range_boundaries, get_column_letter
+
     st.title("🏭 Gestión de Producción")
     st.caption("Planificación y control productivo de PASTELPAN")
 
-    hojas_produccion = {
-        "Demanda y pronóstico": [
-            "Demanda y Pronóstico Vainilla",
-            "Demanda y Pronóstico Chocolate"
-        ],
-        "Plan agregado (PAP)": ["PAP "],
-        "Programa maestro (PMP)": [
-            "PMP Vainilla",
-            "PMP Chocolate"
-        ],
-        "Maestro de materiales": ["Maestro de Materiales"],
-        "Estructura de materiales (BOM)": ["BOM"],
-        "MRP I": ["MRP I"],
-        "MRP II": ["MRP II AJUSTADO", "MRP II FINAL"],
-        "Distribución (DRP)": ["DRP"]
-    }
+    archivo = st.session_state.get("excel_bytes")
 
-    seccion_prod = st.radio(
-        "Selecciona el proceso productivo:",
-        list(hojas_produccion.keys()),
-        horizontal=True
-    )
+    if not archivo:
+        st.warning("Primero debes cargar el archivo Excel de PASTELPAN.")
 
-    hojas = hojas_produccion[seccion_prod]
+    else:
 
-    for nombre_hoja in hojas:
+        # Abrir el Excel original sin modificarlo
+        wb = load_workbook(
+            BytesIO(archivo),
+            data_only=True
+        )
+
+        # Cuadros y rangos exactos indicados del proyecto
+        cuadros_produccion = {
+
+            "Demanda y pronóstico": [
+                (
+                    "Pronóstico de demanda - Torta de vainilla",
+                    "Demanda y Pronóstico Vainilla",
+                    "B32:E55"
+                ),
+                (
+                    "Pronóstico de demanda - Torta de chocolate",
+                    "Demanda y Pronóstico Chocolate",
+                    "J31:O32"
+                )
+            ],
+
+            "Plan agregado (PAP)": [
+                (
+                    "Plan agregado de producción",
+                    "PAP ",
+                    "A99:E108"
+                )
+            ],
+
+            "Programa maestro (PMP)": [
+                (
+                    "PMP - Torta de vainilla",
+                    "PMP Vainilla",
+                    "A11:Y19"
+                ),
+                (
+                    "PMP - Torta de chocolate",
+                    "PMP Chocolate",
+                    "A11:Y19"
+                )
+            ],
+
+            "Maestro de materiales": [
+                (
+                    "Maestro de materiales",
+                    "Maestro de Materiales",
+                    "B4:L24"
+                )
+            ],
+
+            "Estructura de materiales (BOM)": [
+                (
+                    "BOM - Torta de vainilla",
+                    "BOM",
+                    "D10:J26"
+                ),
+                (
+                    "BOM - Torta de chocolate",
+                    "BOM",
+                    "Q10:W22"
+                )
+            ],
+
+            "TLO": [
+                (
+                    "TLO - Tabla de planificación",
+                    "MRP II FINAL",
+                    "B240:K263"
+                )
+            ],
+
+            "BOC": [
+                (
+                    "BOC - Balance de operaciones",
+                    "MRP II FINAL",
+                    "Q4:Z38"
+                )
+            ],
+
+            "CRP": [
+                (
+                    "CRP - Planificación de capacidad",
+                    "MRP II FINAL",
+                    "Q46:Z75"
+                )
+            ],
+
+            "Distribución (DRP)": [
+                (
+                    "DRP - Torta de vainilla",
+                    "DRP",
+                    "K95:T103"
+                ),
+                (
+                    "DRP - Torta de chocolate",
+                    "DRP",
+                    "V95:AE103"
+                )
+            ]
+        }
+
+        # Selector de secciones
+        seccion_prod = st.selectbox(
+            "Selecciona el proceso productivo:",
+            list(cuadros_produccion.keys())
+        )
 
         st.markdown("---")
-        st.subheader(nombre_hoja.strip())
 
-        try:
+        # Mostrar exclusivamente los cuadros seleccionados
+        for titulo, nombre_hoja, rango in cuadros_produccion[seccion_prod]:
 
-            # Lectura especial de las hojas PMP
-            if nombre_hoja in ["PMP Vainilla", "PMP Chocolate"]:
+            st.subheader(titulo)
 
-                df = pd.read_excel(
-                    BytesIO(st.session_state["excel_bytes"]),
-                    sheet_name=nombre_hoja,
-                    header=None,
-                    engine="openpyxl"
+            try:
+
+                if nombre_hoja not in wb.sheetnames:
+                    st.error(
+                        f"No se encontró la hoja: {nombre_hoja}"
+                    )
+                    continue
+
+                ws = wb[nombre_hoja]
+
+                # Obtener límites del rango Excel
+                min_col, min_row, max_col, max_row = (
+                    range_boundaries(rango)
                 )
 
-                df = df.dropna(how="all")
-                df = df.dropna(axis=1, how="all")
+                # Leer exactamente las celdas indicadas
+                datos = []
 
-            else:
-                df = leer_hoja(nombre_hoja)
+                for fila in ws.iter_rows(
+                    min_row=min_row,
+                    max_row=max_row,
+                    min_col=min_col,
+                    max_col=max_col,
+                    values_only=True
+                ):
+                    datos.append(list(fila))
 
-            # Mostrar información
-            if df is not None and not df.empty:
+                # Convertir a tabla
+                columnas = [
+                    get_column_letter(col)
+                    for col in range(min_col, max_col + 1)
+                ]
 
-                st.dataframe(
-                    df,
-                    use_container_width=True,
-                    hide_index=True
+                df = pd.DataFrame(
+                    datos,
+                    columns=columnas
                 )
 
-                csv = df.to_csv(index=False).encode("utf-8-sig")
+                if not df.empty and not df.isna().all().all():
 
-                st.download_button(
-                    label=f"Descargar {nombre_hoja.strip()}",
-                    data=csv,
-                    file_name=f"{nombre_hoja.strip()}.csv",
-                    mime="text/csv",
-                    key=f"descarga_{nombre_hoja.strip()}"
+                    st.dataframe(
+                        df,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400
+                    )
+
+                else:
+                    st.info(
+                        "No hay valores disponibles en este rango."
+                    )
+
+            except Exception as e:
+
+                st.error(
+                    f"Error al leer {titulo}: {e}"
                 )
 
-            else:
-                st.info(
-                    "La hoja no contiene registros para mostrar."
-                )
+            st.markdown("---")
 
-        except Exception as e:
+        wb.close()
 
-            st.error(
-                f"No se pudo leer la hoja {nombre_hoja}: {e}"
-            )
+    st.caption("PASTELPAN ERP | Una tentación irresistible")
 
 
 # ==========================================
