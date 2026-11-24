@@ -809,6 +809,12 @@ elif seccion == "Producción":
 
                 # Las celdas vacías se muestran en blanco
                 df = df.fillna("")
+                # Mostrar números con máximo un decimal
+df = df.map(
+    lambda x: round(x, 1)
+    if isinstance(x, (int, float)) and not isinstance(x, bool)
+    else x
+)
 
                 # Quitar filas completamente vacías
                 df = df.loc[
