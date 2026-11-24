@@ -72,6 +72,7 @@ if archivo is not None:
 
 excel = obtener_excel()
 
+
 MODULOS = [
     "Inicio",
     "Información",
@@ -82,13 +83,23 @@ MODULOS = [
     "Dashboard"
 ]
 
-seccion = st.sidebar.radio("MENÚ PRINCIPAL", MODULOS)
+if "seccion_menu" not in st.session_state:
+    st.session_state["seccion_menu"] = "Inicio"
+
+with st.sidebar:
+    seccion = st.radio(
+        "MENÚ PRINCIPAL",
+        MODULOS,
+        key="seccion_menu"
+    )
+
 if seccion != "Inicio":
-    if st.button("← Volver al menú principal", use_container_width=True):
+    if st.button(
+        "← Volver al menú principal",
+        use_container_width=True
+    ):
         st.session_state["seccion_menu"] = "Inicio"
         st.rerun()
-
-
 
 
 # ==========================================
