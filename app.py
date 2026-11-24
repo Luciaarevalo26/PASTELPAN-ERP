@@ -642,33 +642,75 @@ elif seccion == "CRM":
 # PRODUCCION
 # ==========================================
 
+
 elif seccion == "Producción":
 
     st.title("🏭 Gestión de Producción")
+    st.caption("Planificación y control productivo de PASTELPAN")
 
-    if excel is not None:
-
-        hojas = [
+    hojas_produccion = {
+        "Demanda y pronóstico": [
             "Demanda y Pronóstico Vainilla",
-            "Demanda y Pronóstico Chocolate",
-            "PAP ",
+            "Demanda y Pronóstico Chocolate"
+        ],
+        "Plan agregado (PAP)": ["PAP "],
+        "Programa maestro (PMP)": [
             "PMP Vainilla",
-            "PMP Chocolate",
-            "Maestro de Materiales",
-            "BOM",
-            "MRP I",
-            "MRP II AJUSTADO",
-            "MRP II FINAL",
-            "DRP"
-        ]
+            "PMP Chocolate"
+        ],
+        "Maestro de materiales": ["Maestro de Materiales"],
+        "Estructura de materiales (BOM)": ["BOM"],
+        "MRP I": ["MRP I"],
+        "MRP II": ["MRP II AJUSTADO", "MRP II FINAL"],
+        "Distribución (DRP)": ["DRP"]
+    }
 
-        opcion = st.selectbox("Proceso productivo", hojas)
-        datos = leer_hoja(opcion)
+    seccion_prod = st.radio(
+        "Selecciona el proceso productivo:",
+        list(hojas_produccion.keys()),
+        horizontal=True
+    )
 
-        st.dataframe(datos, use_container_width=True)
+    hojas = hojas_produccion[seccion_prod]
 
-    else:
-        st.warning("Carga el Excel maestro.")
+    for nombre_hoja in hojas:
+
+        st.markdown("---")
+        st.subheader(nombre_hoja.strip())
+
+        try:
+            df = leer_hoja(nombre_hoja)
+
+            if df is not None and not df.empty:
+                df = df.dropna(how="all")
+                df = df.loc[:, ~df.columns.astype(str).str.contains(
+                    "^Unnamed", case=False
+                )]
+
+                if not df.empty:
+                    st.dataframe(
+                        df,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                    csv = df.to_csv(index=False).encode("utf-8-sig")
+
+                    st.download_button(
+                        label=f"Descargar {nombre_hoja.strip()}",
+                        data=csv,
+                        file_name=f"{nombre_hoja.strip()}.csv",
+                        mime="text/csv",
+                        key=f"descarga_{nombre_hoja.strip()}"
+                    )
+                else:
+                    st.info("La hoja no contiene registros para mostrar.")
+            else:
+                st.warning("No se encontraron datos en esta hoja.")
+
+        except Exception as e:
+            st.error(f"No se pudo leer la hoja: {e}")
+
 
 
 # ==========================================
