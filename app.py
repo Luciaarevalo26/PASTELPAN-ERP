@@ -856,8 +856,10 @@ elif seccion == "Producción":
 
                     return estilos
 
+                
                 tabla = (
                     df.style
+                    .format(precision=1, na_rep="")
                     .apply(aplicar_formato, axis=None)
                     .set_table_styles([
                         {
@@ -870,6 +872,18 @@ elif seccion == "Producción":
                                 ("border", "1px solid #D8E5D0"),
                                 ("padding", "9px")
                             ]
+                        },
+                        {
+                            "selector": "td",
+                            "props": [
+                                ("border", "1px solid #E8DED0"),
+                                ("padding", "8px"),
+                                ("color", "#51483F")
+                            ]
+                        }
+                    ])
+                )
+
                         },
                         {
                             "selector": "td",
