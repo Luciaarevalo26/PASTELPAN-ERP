@@ -802,21 +802,24 @@ elif seccion == "Producción":
                     else:
                         encabezados_unicos.append(nombre)
 
+               
                 df = pd.DataFrame(
                     filas,
                     columns=encabezados_unicos
                 )
 
-                # Las celdas vacías se muestran en blanco
+                # Eliminar valores vacíos
                 df = df.fillna("")
-                # Mostrar números con máximo un decimal
-df = df.map(
-    lambda x: round(x, 1)
-    if isinstance(x, (int, float)) and not isinstance(x, bool)
-    else x
-)
 
-                # Quitar filas completamente vacías
+                # Mostrar números con un solo decimal
+                df = df.map(
+                    lambda x: round(x, 1)
+                    if isinstance(x, (int, float))
+                    and not isinstance(x, bool)
+                    else x
+                )
+
+                # Eliminar filas completamente vacías
                 df = df.loc[
                     ~df.apply(
                         lambda fila: all(
@@ -826,6 +829,11 @@ df = df.map(
                         axis=1
                     )
                 ]
+
+                if df.empty:
+                    st.info("No hay registros para mostrar.")
+                    return
+
 
                 if df.empty:
                     st.info("No hay registros para mostrar.")
