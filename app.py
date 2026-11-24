@@ -130,9 +130,7 @@ if seccion == "Inicio":
 # INFORMACION
 # ==========================================
 
-
-    elif seccion == "Información":
-
+elif seccion == "Información":
         st.markdown("""
             <div style="
                 background: linear-gradient(110deg, #F3E8D5, #FCE8E5);
