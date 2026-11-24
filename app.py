@@ -642,269 +642,237 @@ elif seccion == "CRM":
 # PRODUCCION
 # ==========================================
 
+
 elif seccion == "Producción":
 
     from io import BytesIO
     from openpyxl import load_workbook
     from openpyxl.utils import range_boundaries
 
-    st.title("🏭 Gestión de Producción")
-    st.caption("Planificación y control productivo de PASTELPAN")
+    st.title("Producción")
+    st.markdown(
+        "Consulta las tablas de planificación y control de producción de PASTELPAN."
+    )
 
     archivo = st.session_state.get("excel_bytes")
 
     if not archivo:
-        st.warning("Primero debes cargar el archivo Excel de PASTELPAN.")
+        st.warning("Primero debes cargar el archivo Excel de PASTELPAN desde el menú lateral.")
 
     else:
+        try:
+            wb = load_workbook(BytesIO(archivo), data_only=True)
 
-        wb = load_workbook(
-            BytesIO(archivo),
-            data_only=True
-        )
+            nombre_hoja = "PRODUCCION (RESUMEN)"
 
-        nombre_hoja = "PRODUCCION (RESUMEN)"
+            if nombre_hoja not in wb.sheetnames:
+                st.error(f"No se encontró la hoja: {nombre_hoja}")
 
-        if nombre_hoja not in wb.sheetnames:
-            st.error("No se encontró la hoja PRODUCCION (RESUMEN).")
+            else:
+                ws = wb[nombre_hoja]
 
-        else:
+                cuadros = {
+                    "Demanda y pronóstico": [
+                        ("Histórico de ventas - Vainilla", "B2:D26", 1),
+                        ("Pronóstico - Vainilla", "F2:I14", 1),
+                        ("Histórico de ventas - Chocolate", "B30:D54", 1),
+                        ("Pronóstico - Chocolate", "F30:I42", 1)
+                    ],
 
-            ws = wb[nombre_hoja]
+                    "Plan agregado (PAP)": [
+                        ("Plan agregado de producción", "B58:F66", 1)
+                    ],
 
-            cuadros = {
+                    "Programa maestro (PMP)": [
+                        ("PMP - Torta de vainilla", "B70:Y78", 1),
+                        ("PMP - Torta de chocolate", "B82:Y90", 1)
+                    ],
 
-                "Demanda y pronóstico": [
-                    ("Histórico de ventas - Vainilla", "B2:D26", 1),
-                    ("Pronóstico - Vainilla", "F2:I14", 1),
-                    ("Histórico de ventas - Chocolate", "B30:D54", 1),
-                    ("Pronóstico - Chocolate", "F30:I42", 1)
-                ],
+                    "Maestro de materiales": [
+                        ("Maestro de materiales", "B95:L115", 1)
+                    ],
 
-                "Plan agregado (PAP)": [
-                    ("Plan agregado de producción", "B58:F66", 1)
-                ],
+                    "Estructura de materiales (BOM)": [
+                        ("BOM - Torta de vainilla", "B118:H134", 1),
+                        ("BOM - Torta de chocolate", "B137:H149", 1)
+                    ],
 
-                "Programa maestro (PMP)": [
-                    ("PMP - Torta de vainilla", "B70:Y78", 1),
-                    ("PMP - Torta de chocolate", "B82:Y90", 1)
-                ],
+                    "TLO": [
+                        ("Tabla de lanzamiento de órdenes", "B152:K172", 1)
+                    ],
 
-                "Maestro de materiales": [
-                    ("Maestro de materiales", "B95:L115", 1)
-                ],
+                    "BOC": [
+                        ("Balance de operaciones y capacidades", "B176:K210", 2)
+                    ],
 
-                "Estructura de materiales (BOM)": [
-                    ("BOM - Torta de vainilla", "B118:H134", 1),
-                    ("BOM - Torta de chocolate", "B137:H149", 1)
-                ],
+                    "CRP": [
+                        ("Planificación de requerimientos de capacidad", "B212:K241", 2)
+                    ],
 
-                "TLO": [
-                    ("Tabla de lanzamiento de órdenes", "B152:K172", 1)
-                ],
-
-                "BOC": [
-                    ("Balance de operaciones y capacidades", "B176:K210", 2)
-                ],
-
-                "CRP": [
-                    ("Planificación de requerimientos de capacidad", "B212:K241", 2)
-                ],
-
-                "Distribución (DRP)": [
-                    ("DRP - Torta de vainilla", "B244:K251", 1),
-                    ("DRP - Torta de chocolate", "B253:K260", 1)
-                ]
-            }
-
-            seccion_prod = st.selectbox(
-                "Selecciona el proceso productivo:",
-                list(cuadros.keys())
-            )
-
-            def mostrar_cuadro(titulo, rango, filas_encabezado):
-
-                st.markdown(f"#### {titulo}")
-
-                min_col, min_row, max_col, max_row = (
-                    range_boundaries(rango)
-                )
-
-                datos = []
-
-                for fila in ws.iter_rows(
-                    min_row=min_row,
-                    max_row=max_row,
-                    min_col=min_col,
-                    max_col=max_col,
-                    values_only=True
-                ):
-                    datos.append(list(fila))
-
-                if not datos:
-                    st.info("No hay información disponible.")
-                    return
-
-                # Encabezados simples o dobles
-                if filas_encabezado == 2:
-
-                    superior = datos[0]
-                    inferior = datos[1]
-
-                    encabezados = []
-                    anterior = ""
-
-                    for arriba, abajo in zip(superior, inferior):
-
-                        if arriba is not None and str(arriba).strip():
-                            anterior = str(arriba).strip()
-
-                        hijo = str(abajo).strip() if abajo is not None else ""
-
-                        if anterior and hijo:
-                            encabezados.append(f"{anterior} - {hijo}")
-                        elif hijo:
-                            encabezados.append(hijo)
-                        elif anterior:
-                            encabezados.append(anterior)
-                        else:
-                            encabezados.append("")
-
-                    filas = datos[2:]
-
-                else:
-
-                    encabezados = [
-                        str(valor).strip() if valor is not None
-                        else f"Columna {i+1}"
-                        for i, valor in enumerate(datos[0])
+                    "Distribución (DRP)": [
+                        ("DRP - Torta de vainilla", "B244:K251", 1),
+                        ("DRP - Torta de chocolate", "B253:K260", 1)
                     ]
+                }
 
-                    filas = datos[1:]
-
-                # Evitar encabezados vacíos
-                encabezados = [
-                    valor if valor else f"Campo {i+1}"
-                    for i, valor in enumerate(encabezados)
-                ]
-
-                # Evitar nombres de columnas duplicados
-                contador = {}
-                encabezados_unicos = []
-
-                for nombre in encabezados:
-                    contador[nombre] = contador.get(nombre, 0) + 1
-
-                    if contador[nombre] > 1:
-                        encabezados_unicos.append(
-                            f"{nombre} ({contador[nombre]})"
-                        )
-                    else:
-                        encabezados_unicos.append(nombre)
-
-               
-                df = pd.DataFrame(
-                    filas,
-                    columns=encabezados_unicos
-                )
-
-                # Eliminar valores vacíos
-                df = df.fillna("")
-
-                # Mostrar números con un solo decimal
-                df = df.map(
-                    lambda x: round(x, 1)
-                    if isinstance(x, (int, float))
-                    and not isinstance(x, bool)
-                    else x
-                )
-
-                # Eliminar filas completamente vacías
-                df = df.loc[
-                    ~df.apply(
-                        lambda fila: all(
-                            str(valor).strip() == ""
-                            for valor in fila
-                        ),
-                        axis=1
-                    )
-                ]
-
-                if df.empty:
-                    st.info("No hay registros para mostrar.")
-                    return
-
-
-                if df.empty:
-                    st.info("No hay registros para mostrar.")
-                    return
-
-                # Formato de primera columna y encabezados
                 def aplicar_formato(data):
-
                     estilos = pd.DataFrame(
                         "",
                         index=data.index,
                         columns=data.columns
                     )
 
-                    if data.shape[1] > 0:
+                    if len(data.columns) > 0:
                         estilos.iloc[:, 0] = (
                             "font-weight: bold; "
-                            "background-color: #F3E8D5;"
+                            "background-color: #F5EBDD; "
+                            "color: #51483F;"
                         )
 
                     return estilos
-tabla = (
-    df.style
-    .format(precision=1, na_rep="")
-    .apply(aplicar_formato, axis=None)
-    .set_table_styles([
-        {
-            "selector": "th",
-            "props": [
-                ("background-color", "#A9D18E"),
-                ("color", "#34452F"),
-                ("font-weight", "bold"),
-                ("text-align", "center"),
-                ("border", "1px solid #D8E5D0"),
-                ("padding", "9px")
-            ]
-        },
-        {
-            "selector": "td",
-            "props": [
-                ("border", "1px solid #E8DED0"),
-                ("padding", "8px"),
-                ("color", "#51483F")
-            ]
-        }
-    ])
-)
-                st.dataframe(
-                    tabla,
-                    use_container_width=True,
-                    hide_index=True,
-                    height=400
+
+                def mostrar_cuadro(titulo, rango, filas_encabezado):
+
+                    min_col, min_row, max_col, max_row = range_boundaries(rango)
+
+                    datos = []
+
+                    for fila in ws.iter_rows(
+                        min_row=min_row,
+                        max_row=max_row,
+                        min_col=min_col,
+                        max_col=max_col,
+                        values_only=True
+                    ):
+                        datos.append(list(fila))
+
+                    if not datos:
+                        return
+
+                    if filas_encabezado == 2 and len(datos) >= 2:
+                        encabezado_superior = datos[0]
+                        encabezado_inferior = datos[1]
+
+                        encabezados = []
+
+                        for superior, inferior in zip(
+                            encabezado_superior,
+                            encabezado_inferior
+                        ):
+                            if inferior is not None and str(inferior).strip():
+                                encabezados.append(str(inferior).strip())
+                            elif superior is not None and str(superior).strip():
+                                encabezados.append(str(superior).strip())
+                            else:
+                                encabezados.append("")
+
+                        filas = datos[2:]
+
+                    else:
+                        encabezados = [
+                            str(valor).strip() if valor is not None else ""
+                            for valor in datos[0]
+                        ]
+
+                        filas = datos[1:]
+
+                    # Evitar encabezados vacíos o repetidos
+                    encabezados_finales = []
+                    contador = {}
+
+                    for i, encabezado in enumerate(encabezados):
+                        nombre = encabezado if encabezado else f"Columna {i + 1}"
+
+                        contador[nombre] = contador.get(nombre, 0) + 1
+
+                        if contador[nombre] > 1:
+                            nombre = f"{nombre} ({contador[nombre]})"
+
+                        encabezados_finales.append(nombre)
+
+                    df = pd.DataFrame(
+                        filas,
+                        columns=encabezados_finales
+                    )
+
+                    df = df.fillna("")
+
+                    # Mostrar números con un decimal
+                    for columna in df.columns:
+                        df[columna] = df[columna].apply(
+                            lambda valor: round(valor, 1)
+                            if isinstance(valor, (int, float))
+                            and not isinstance(valor, bool)
+                            else valor
+                        )
+
+                    # Eliminar filas completamente vacías
+                    df = df.loc[
+                        ~df.apply(
+                            lambda fila: all(
+                                str(valor).strip() == ""
+                                for valor in fila
+                            ),
+                            axis=1
+                        )
+                    ]
+
+                    st.markdown(f"**{titulo}**")
+
+                    tabla = (
+                        df.style
+                        .format(precision=1, na_rep="")
+                        .apply(aplicar_formato, axis=None)
+                        .set_table_styles([
+                            {
+                                "selector": "th",
+                                "props": [
+                                    ("background-color", "#A9D18E"),
+                                    ("color", "#34452F"),
+                                    ("font-weight", "bold"),
+                                    ("text-align", "center"),
+                                    ("border", "1px solid #D8E5D0"),
+                                    ("padding", "9px")
+                                ]
+                            },
+                            {
+                                "selector": "td",
+                                "props": [
+                                    ("border", "1px solid #E8DED0"),
+                                    ("padding", "8px"),
+                                    ("color", "#51483F")
+                                ]
+                            }
+                        ])
+                    )
+
+                    st.dataframe(
+                        tabla,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400
+                    )
+
+                    st.write("")
+
+                categorias = list(cuadros.keys())
+
+                categoria_seleccionada = st.selectbox(
+                    "Selecciona una sección de producción:",
+                    categorias
                 )
 
-            # Mostrar cuadros de la sección seleccionada
-            for titulo, rango, encabezados in cuadros[seccion_prod]:
+                st.divider()
 
-                mostrar_cuadro(
-                    titulo,
-                    rango,
-                    encabezados
-                )
+                for titulo, rango, filas_encabezado in cuadros[categoria_seleccionada]:
+                    mostrar_cuadro(
+                        titulo,
+                        rango,
+                        filas_encabezado
+                    )
 
-                st.markdown("---")
-
-        wb.close()
-
-    st.caption("PASTELPAN ERP | Una tentación irresistible")
-
-
-
+        except Exception as error:
+            st.error(f"No se pudo cargar la información de Producción: {error}")
 # ==========================================
 # INVENTARIOS
 # ==========================================
