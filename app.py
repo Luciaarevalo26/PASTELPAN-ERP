@@ -644,10 +644,9 @@ elif seccion == "CRM":
 
 elif seccion == "Producción":
 
-    import pandas as pd
     from io import BytesIO
     from openpyxl import load_workbook
-    from openpyxl.utils import range_boundaries, get_column_letter
+    from openpyxl.utils import range_boundaries
 
     st.title("🏭 Gestión de Producción")
     st.caption("Planificación y control productivo de PASTELPAN")
@@ -659,137 +658,78 @@ elif seccion == "Producción":
 
     else:
 
-        # Abrir el Excel original sin modificarlo
         wb = load_workbook(
             BytesIO(archivo),
             data_only=True
         )
 
-        # Cuadros y rangos exactos indicados del proyecto
-        cuadros_produccion = {
+        nombre_hoja = "PRODUCCION (RESUMEN)"
 
-            "Demanda y pronóstico": [
-                (
-                    "Pronóstico de demanda - Torta de vainilla",
-                    "Demanda y Pronóstico Vainilla",
-                    "B32:E55"
-                ),
-                (
-                    "Pronóstico de demanda - Torta de chocolate",
-                    "Demanda y Pronóstico Chocolate",
-                    "J31:O32"
-                )
-            ],
+        if nombre_hoja not in wb.sheetnames:
+            st.error("No se encontró la hoja PRODUCCION (RESUMEN).")
 
-            "Plan agregado (PAP)": [
-                (
-                    "Plan agregado de producción",
-                    "PAP ",
-                    "A99:E108"
-                )
-            ],
+        else:
 
-            "Programa maestro (PMP)": [
-                (
-                    "PMP - Torta de vainilla",
-                    "PMP Vainilla",
-                    "A11:Y19"
-                ),
-                (
-                    "PMP - Torta de chocolate",
-                    "PMP Chocolate",
-                    "A11:Y19"
-                )
-            ],
+            ws = wb[nombre_hoja]
 
-            "Maestro de materiales": [
-                (
-                    "Maestro de materiales",
-                    "Maestro de Materiales",
-                    "B4:L24"
-                )
-            ],
+            cuadros = {
 
-            "Estructura de materiales (BOM)": [
-                (
-                    "BOM - Torta de vainilla",
-                    "BOM",
-                    "D10:J26"
-                ),
-                (
-                    "BOM - Torta de chocolate",
-                    "BOM",
-                    "Q10:W22"
-                )
-            ],
+                "Demanda y pronóstico": [
+                    ("Histórico de ventas - Vainilla", "B2:D26", 1),
+                    ("Pronóstico - Vainilla", "F2:I14", 1),
+                    ("Histórico de ventas - Chocolate", "B30:D54", 1),
+                    ("Pronóstico - Chocolate", "F30:I42", 1)
+                ],
 
-            "TLO": [
-                (
-                    "TLO - Tabla de planificación",
-                    "MRP II FINAL",
-                    "B240:K263"
-                )
-            ],
+                "Plan agregado (PAP)": [
+                    ("Plan agregado de producción", "B58:F66", 1)
+                ],
 
-            "BOC": [
-                (
-                    "BOC - Balance de operaciones",
-                    "MRP II FINAL",
-                    "Q4:Z38"
-                )
-            ],
+                "Programa maestro (PMP)": [
+                    ("PMP - Torta de vainilla", "B70:Y78", 1),
+                    ("PMP - Torta de chocolate", "B82:Y90", 1)
+                ],
 
-            "CRP": [
-                (
-                    "CRP - Planificación de capacidad",
-                    "MRP II FINAL",
-                    "Q46:Z75"
-                )
-            ],
+                "Maestro de materiales": [
+                    ("Maestro de materiales", "B95:L115", 1)
+                ],
 
-            "Distribución (DRP)": [
-                (
-                    "DRP - Torta de vainilla",
-                    "DRP",
-                    "K95:T103"
-                ),
-                (
-                    "DRP - Torta de chocolate",
-                    "DRP",
-                    "V95:AE103"
-                )
-            ]
-        }
+                "Estructura de materiales (BOM)": [
+                    ("BOM - Torta de vainilla", "B118:H134", 1),
+                    ("BOM - Torta de chocolate", "B137:H149", 1)
+                ],
 
-        # Selector de secciones
-        seccion_prod = st.selectbox(
-            "Selecciona el proceso productivo:",
-            list(cuadros_produccion.keys())
-        )
+                "TLO": [
+                    ("Tabla de lanzamiento de órdenes", "B152:K172", 1)
+                ],
 
-        st.markdown("---")
+                "BOC": [
+                    ("Balance de operaciones y capacidades", "B176:K210", 2)
+                ],
 
-        # Mostrar exclusivamente los cuadros seleccionados
-        for titulo, nombre_hoja, rango in cuadros_produccion[seccion_prod]:
+                "CRP": [
+                    ("Planificación de requerimientos de capacidad", "B212:K241", 2)
+                ],
 
-            st.subheader(titulo)
+                "Distribución (DRP)": [
+                    ("DRP - Torta de vainilla", "B244:K251", 1),
+                    ("DRP - Torta de chocolate", "B253:K260", 1)
+                ]
+            }
 
-            try:
+            seccion_prod = st.selectbox(
+                "Selecciona el proceso productivo:",
+                list(cuadros.keys())
+            )
 
-                if nombre_hoja not in wb.sheetnames:
-                    st.error(
-                        f"No se encontró la hoja: {nombre_hoja}"
-                    )
-                    continue
+            def mostrar_cuadro(titulo, rango, filas_encabezado):
 
-                ws = wb[nombre_hoja]
+                st.markdown(f"#### {titulo}")
 
-                # Obtener límites del rango Excel
                 min_col, min_row, max_col, max_row = (
                     range_boundaries(rango)
                 )
 
-                # Leer exactamente las celdas indicadas
                 datos = []
 
                 for fila in ws.iter_rows(
@@ -801,42 +741,155 @@ elif seccion == "Producción":
                 ):
                     datos.append(list(fila))
 
-                # Convertir a tabla
-                columnas = [
-                    get_column_letter(col)
-                    for col in range(min_col, max_col + 1)
-                ]
+                if not datos:
+                    st.info("No hay información disponible.")
+                    return
 
-                df = pd.DataFrame(
-                    datos,
-                    columns=columnas
-                )
+                # Encabezados simples o dobles
+                if filas_encabezado == 2:
 
-                if not df.empty and not df.isna().all().all():
+                    superior = datos[0]
+                    inferior = datos[1]
 
-                    st.dataframe(
-                        df,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=400
-                    )
+                    encabezados = []
+                    anterior = ""
+
+                    for arriba, abajo in zip(superior, inferior):
+
+                        if arriba is not None and str(arriba).strip():
+                            anterior = str(arriba).strip()
+
+                        hijo = str(abajo).strip() if abajo is not None else ""
+
+                        if anterior and hijo:
+                            encabezados.append(f"{anterior} - {hijo}")
+                        elif hijo:
+                            encabezados.append(hijo)
+                        elif anterior:
+                            encabezados.append(anterior)
+                        else:
+                            encabezados.append("")
+
+                    filas = datos[2:]
 
                 else:
-                    st.info(
-                        "No hay valores disponibles en este rango."
-                    )
 
-            except Exception as e:
+                    encabezados = [
+                        str(valor).strip() if valor is not None
+                        else f"Columna {i+1}"
+                        for i, valor in enumerate(datos[0])
+                    ]
 
-                st.error(
-                    f"Error al leer {titulo}: {e}"
+                    filas = datos[1:]
+
+                # Evitar encabezados vacíos
+                encabezados = [
+                    valor if valor else f"Campo {i+1}"
+                    for i, valor in enumerate(encabezados)
+                ]
+
+                # Evitar nombres de columnas duplicados
+                contador = {}
+                encabezados_unicos = []
+
+                for nombre in encabezados:
+                    contador[nombre] = contador.get(nombre, 0) + 1
+
+                    if contador[nombre] > 1:
+                        encabezados_unicos.append(
+                            f"{nombre} ({contador[nombre]})"
+                        )
+                    else:
+                        encabezados_unicos.append(nombre)
+
+                df = pd.DataFrame(
+                    filas,
+                    columns=encabezados_unicos
                 )
 
-            st.markdown("---")
+                # Las celdas vacías se muestran en blanco
+                df = df.fillna("")
+
+                # Quitar filas completamente vacías
+                df = df.loc[
+                    ~df.apply(
+                        lambda fila: all(
+                            str(valor).strip() == ""
+                            for valor in fila
+                        ),
+                        axis=1
+                    )
+                ]
+
+                if df.empty:
+                    st.info("No hay registros para mostrar.")
+                    return
+
+                # Formato de primera columna y encabezados
+                def aplicar_formato(data):
+
+                    estilos = pd.DataFrame(
+                        "",
+                        index=data.index,
+                        columns=data.columns
+                    )
+
+                    if data.shape[1] > 0:
+                        estilos.iloc[:, 0] = (
+                            "font-weight: bold; "
+                            "background-color: #F3E8D5;"
+                        )
+
+                    return estilos
+
+                tabla = (
+                    df.style
+                    .apply(aplicar_formato, axis=None)
+                    .set_table_styles([
+                        {
+                            "selector": "th",
+                            "props": [
+                                ("background-color", "#A9D18E"),
+                                ("color", "#34452F"),
+                                ("font-weight", "bold"),
+                                ("text-align", "center"),
+                                ("border", "1px solid #D8E5D0"),
+                                ("padding", "9px")
+                            ]
+                        },
+                        {
+                            "selector": "td",
+                            "props": [
+                                ("border", "1px solid #E8DED0"),
+                                ("padding", "8px"),
+                                ("color", "#51483F")
+                            ]
+                        }
+                    ])
+                )
+
+                st.dataframe(
+                    tabla,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400
+                )
+
+            # Mostrar cuadros de la sección seleccionada
+            for titulo, rango, encabezados in cuadros[seccion_prod]:
+
+                mostrar_cuadro(
+                    titulo,
+                    rango,
+                    encabezados
+                )
+
+                st.markdown("---")
 
         wb.close()
 
     st.caption("PASTELPAN ERP | Una tentación irresistible")
+
 
 
 # ==========================================
