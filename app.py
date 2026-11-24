@@ -642,7 +642,6 @@ elif seccion == "CRM":
 # PRODUCCION
 # ==========================================
 
-
 elif seccion == "Producción":
 
     st.title("🏭 Gestión de Producción")
@@ -679,41 +678,52 @@ elif seccion == "Producción":
         st.subheader(nombre_hoja.strip())
 
         try:
+
+            # Lectura especial de las hojas PMP
             if nombre_hoja in ["PMP Vainilla", "PMP Chocolate"]:
-    df = pd.read_excel(
-        BytesIO(st.session_state["excel_bytes"]),
-        sheet_name=nombre_hoja,
-        header=None,
-        engine="openpyxl"
-    )
-    df = df.dropna(how="all").dropna(axis=1, how="all")
-else:
-    df = leer_hoja(nombre_hoja)
 
-                if not df.empty:
-                    st.dataframe(
-                        df,
-                        use_container_width=True,
-                        hide_index=True
-                    )
+                df = pd.read_excel(
+                    BytesIO(st.session_state["excel_bytes"]),
+                    sheet_name=nombre_hoja,
+                    header=None,
+                    engine="openpyxl"
+                )
 
-                    csv = df.to_csv(index=False).encode("utf-8-sig")
+                df = df.dropna(how="all")
+                df = df.dropna(axis=1, how="all")
 
-                    st.download_button(
-                        label=f"Descargar {nombre_hoja.strip()}",
-                        data=csv,
-                        file_name=f"{nombre_hoja.strip()}.csv",
-                        mime="text/csv",
-                        key=f"descarga_{nombre_hoja.strip()}"
-                    )
-                else:
-                    st.info("La hoja no contiene registros para mostrar.")
             else:
-                st.warning("No se encontraron datos en esta hoja.")
+                df = leer_hoja(nombre_hoja)
+
+            # Mostrar información
+            if df is not None and not df.empty:
+
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                csv = df.to_csv(index=False).encode("utf-8-sig")
+
+                st.download_button(
+                    label=f"Descargar {nombre_hoja.strip()}",
+                    data=csv,
+                    file_name=f"{nombre_hoja.strip()}.csv",
+                    mime="text/csv",
+                    key=f"descarga_{nombre_hoja.strip()}"
+                )
+
+            else:
+                st.info(
+                    "La hoja no contiene registros para mostrar."
+                )
 
         except Exception as e:
-            st.error(f"No se pudo leer la hoja: {e}")
 
+            st.error(
+                f"No se pudo leer la hoja {nombre_hoja}: {e}"
+            )
 
 
 # ==========================================
