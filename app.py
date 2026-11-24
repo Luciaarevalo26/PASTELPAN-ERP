@@ -247,199 +247,221 @@ if seccion == "Inicio":
 # INFORMACIÓN
 # ==========================================
 
+
 elif seccion == "Información":
 
+    st.title("🏢 Información de PASTELPAN")
+    st.caption("Una tentación irresistible")
+
     st.markdown("""
-        <div style="
-            background: linear-gradient(110deg, #F3E8D5, #FCE8E5);
-            padding: 28px;
-            border-radius: 18px;
-            text-align: center;
-            margin-bottom: 22px;">
-            <h1 style="color:#8B5145; margin-bottom:5px;">
-                PASTELPAN
-            </h1>
-            <h4 style="color:#A65D54; margin-top:0;">
-                Una tentación irresistible
-            </h4>
-            <p style="color:#665047;">
-                Tradición, dedicación y sabor en cada preparación.
-            </p>
-        </div>
+    <div style="
+        background: linear-gradient(110deg, #F3E8D5, #FCE8E5);
+        padding: 25px;
+        border-radius: 16px;
+        text-align: center;
+        margin-bottom: 20px;">
+        <h1 style="color:#8B5145;">PASTELPAN</h1>
+        <h4 style="color:#A65D54;">
+            Empresa del sector pastelería
+        </h4>
+        <p style="color:#665047;">
+            Elaboración y comercialización de tortas
+            para diferentes ocasiones.
+        </p>
+    </div>
     """, unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "🏠 Conócenos",
-        "🎂 Nuestros productos",
-        "👩‍🍳 Nuestra planta",
-        "📋 Proceso productivo"
+    tab1, tab2, tab3 = st.tabs([
+        "🏢 Datos de la empresa",
+        "🎂 Productos principales",
+        "⚙️ Proceso de fabricación"
     ])
+
+    # ======================================
+    # DATOS GENERALES
+    # ======================================
 
     with tab1:
 
-        st.subheader("¿Quiénes somos?")
+        st.subheader("Datos generales de la empresa")
 
-        st.write("""
-        **PASTELPAN** es una empresa familiar dedicada a la
-        elaboración de productos de panadería, pastelería y
-        confitería. Su desarrollo comenzó como un emprendimiento
-        impulsado por su fundador, quien inició sus actividades
-        con un horno industrial.
+        datos_empresa = [
+            ("Nombre comercial", "PASTELPAN"),
+            ("Ubicación", "Jr. Leguía 151, Cajamarca"),
+            ("Sector", "Pastelería"),
+            (
+                "Descripción",
+                "Empresa dedicada a la elaboración y comercialización "
+                "de productos de pastelería, con énfasis en tortas "
+                "para celebraciones y ocasiones especiales."
+            ),
+            (
+                "Productos principales",
+                "Torta de vainilla y torta de chocolate"
+            )
+        ]
 
-        Con el crecimiento de sus clientes, la empresa amplió
-        su oferta incorporando tortas personalizadas, bocaditos
-        dulces y salados, y postres individuales. Asimismo,
-        mejoró sus instalaciones e incorporó maquinaria y
-        personal para fortalecer sus operaciones.
-        """)
+        for campo, valor in datos_empresa:
 
-        col1, col2 = st.columns(2)
+            with st.container(border=True):
 
-        with col1:
+                st.markdown(f"**{campo}**")
+                st.write(valor)
 
-            st.markdown("""
-            <div style="background:#F3E8D5; padding:20px;
-            border-radius:14px; min-height:145px;">
-                <h4 style="color:#8B5145;">📍 Ubicación</h4>
-                <p style="color:#59483D;">
-                Jr. Leguía 151, Cajamarca.
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with col2:
-
-            st.markdown("""
-            <div style="background:#E8F0DF; padding:20px;
-            border-radius:14px; min-height:145px;">
-                <h4 style="color:#557746;">🏢 Actividad empresarial</h4>
-                <p style="color:#43513B;">
-                Elaboración y comercialización de productos
-                de panadería, pastelería y confitería.
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown("### Nuestro compromiso")
-
-        st.info(
-            "Ofrecer productos de calidad, procurando la "
-            "satisfacción de nuestros clientes y fortaleciendo "
-            "nuestra presencia en el mercado cajamarquino."
-        )
-
-    # --------------------------------------
-    # PRODUCTOS
-    # --------------------------------------
+    # ======================================
+    # PRODUCTOS PRINCIPALES
+    # ======================================
 
     with tab2:
 
-        st.subheader("Nuestros productos principales")
+        st.subheader("Características de los productos")
 
         col1, col2 = st.columns(2)
 
         with col1:
 
             st.markdown("""
-            <div style="background:#FFF4E8; padding:22px;
-            border-radius:16px; border:1px solid #EBD7C0;">
-                <div style="font-size:48px; text-align:center;">
-                    🍰
-                </div>
+            <div style="
+                background:#FFF4E8;
+                padding:20px;
+                border-radius:15px;
+                border:1px solid #EBD7C0;">
                 <h3 style="color:#9B684D; text-align:center;">
-                    Torta de vainilla
+                    🍰 Torta de vainilla
                 </h3>
                 <p style="color:#59483D; text-align:justify;">
-                    Preparada principalmente con harina, azúcar,
-                    huevos, mantequilla o aceite y esencia de
-                    vainilla. Se caracteriza por su sabor suave
-                    y puede combinarse con diferentes rellenos,
-                    cremas y decoraciones.
+                    Producto de pastelería elaborado principalmente
+                    con harina, azúcar, huevos, mantequilla o aceite
+                    y esencia de vainilla.
                 </p>
-                <p style="color:#9B684D; text-align:center;">
-                    Ideal para celebraciones y reuniones.
+                <p style="color:#59483D;">
+                    <b>Características:</b>
                 </p>
+                <ul style="color:#59483D;">
+                    <li>Sabor suave y característico a vainilla.</li>
+                    <li>Textura esponjosa.</li>
+                    <li>Puede incorporar diferentes rellenos.</li>
+                    <li>Permite diversas decoraciones.</li>
+                    <li>Se destina a celebraciones y reuniones.</li>
+                </ul>
             </div>
             """, unsafe_allow_html=True)
 
         with col2:
 
             st.markdown("""
-            <div style="background:#FCEAEA; padding:22px;
-            border-radius:16px; border:1px solid #EBCACA;">
-                <div style="font-size:48px; text-align:center;">
-                    🍫
-                </div>
+            <div style="
+                background:#FCEAEA;
+                padding:20px;
+                border-radius:15px;
+                border:1px solid #EBCACA;">
                 <h3 style="color:#A34D4D; text-align:center;">
-                    Torta de chocolate
+                    🍫 Torta de chocolate
                 </h3>
                 <p style="color:#59483D; text-align:justify;">
-                    Elaborada principalmente con harina, huevos,
-                    azúcar, cocoa o chocolate y otros ingredientes.
-                    Es una alternativa para cumpleaños,
-                    aniversarios y reuniones familiares.
+                    Producto de pastelería elaborado principalmente
+                    con harina, huevos, azúcar, cocoa o chocolate
+                    y los demás ingredientes de la preparación.
                 </p>
-                <p style="color:#A34D4D; text-align:center;">
-                    Personalizable según la preferencia del cliente.
+                <p style="color:#59483D;">
+                    <b>Características:</b>
                 </p>
+                <ul style="color:#59483D;">
+                    <li>Sabor característico a chocolate.</li>
+                    <li>Textura suave y esponjosa.</li>
+                    <li>Puede incorporar rellenos y coberturas.</li>
+                    <li>Permite acabados personalizados.</li>
+                    <li>Se destina a celebraciones y reuniones.</li>
+                </ul>
             </div>
             """, unsafe_allow_html=True)
 
         st.caption(
-            "Los productos descritos corresponden a las "
-            "dos líneas principales consideradas en el proyecto."
+            "Las características descritas corresponden a la "
+            "presentación general de ambos productos."
         )
 
-    # --------------------------------------
-    # PLANTA
-    # --------------------------------------
+    # ======================================
+    # PROCESO DE FABRICACIÓN
+    # ======================================
 
     with tab3:
 
-        st.subheader("Organización de las operaciones")
+        st.subheader("Proceso de fabricación de las tortas")
 
         st.write("""
-        Para desarrollar las actividades productivas, PASTELPAN
-        considera cuatro estaciones de trabajo, atendidas por
-        cuatro operarios. La asignación de estaciones organiza
-        las actividades, aunque un mismo operario puede participar
-        en diferentes operaciones según las necesidades del proceso.
+        La elaboración de las tortas de vainilla y chocolate
+        comprende una secuencia de operaciones que permiten
+        transformar los ingredientes en productos terminados.
         """)
 
-        estaciones = [
+        etapas = [
             (
                 "01",
-                "Preparación y pesado",
-                "Selección y pesaje de los ingredientes."
+                "Selección y pesado de ingredientes",
+                "Se seleccionan los insumos y se pesan de acuerdo "
+                "con la formulación correspondiente."
             ),
             (
                 "02",
                 "Mezclado y preparación de la masa",
-                "Integración de los ingredientes para obtener la masa."
+                "Se integran los ingredientes hasta obtener "
+                "una mezcla homogénea."
             ),
             (
                 "03",
-                "Horneado y enfriamiento",
-                "Cocción del producto y posterior enfriamiento."
+                "Preparación de moldes",
+                "Se acondicionan los moldes para recibir "
+                "la mezcla preparada."
             ),
             (
                 "04",
-                "Rellenado y decoración",
-                "Armado, acabado y presentación de las tortas."
+                "Horneado",
+                "La mezcla se somete al proceso de cocción "
+                "para obtener la estructura de la torta."
+            ),
+            (
+                "05",
+                "Enfriamiento",
+                "Se deja enfriar el producto antes de continuar "
+                "con el armado."
+            ),
+            (
+                "06",
+                "Rellenado y armado",
+                "Se incorporan los rellenos y se ensamblan "
+                "las capas de la torta."
+            ),
+            (
+                "07",
+                "Decoración y acabado",
+                "Se aplican las coberturas y decoraciones "
+                "según la presentación del producto."
+            ),
+            (
+                "08",
+                "Control de calidad y empaquetado",
+                "Se verifica la presentación y condición del producto "
+                "para su acondicionamiento y comercialización."
             )
         ]
 
-        for numero, nombre, descripcion in estaciones:
+        for numero, titulo, descripcion in etapas:
 
             st.markdown(f"""
-            <div style="background:#F7F1E8; padding:15px;
-            border-radius:12px; margin-bottom:10px;
-            border-left:5px solid #A9D18E;">
-                <span style="color:#A65D54; font-weight:bold;">
-                    ESTACIÓN {numero}
+            <div style="
+                background:#F8F3EC;
+                padding:15px;
+                border-radius:12px;
+                margin-bottom:10px;
+                border-left:5px solid #A9D18E;">
+                <span style="
+                    color:#A65D54;
+                    font-weight:bold;">
+                    ETAPA {numero}
                 </span>
                 <h4 style="color:#6C594B; margin:5px 0;">
-                    {nombre}
+                    {titulo}
                 </h4>
                 <p style="color:#66584C; margin-bottom:0;">
                     {descripcion}
@@ -447,87 +469,11 @@ elif seccion == "Información":
             </div>
             """, unsafe_allow_html=True)
 
-        st.markdown("### Actividades antes de iniciar la producción")
-
-        actividades = [
-            "Registro de llegada y asignación de actividades.",
-            "Lavado de manos y colocación de indumentaria de trabajo.",
-            "Limpieza y desinfección de las estaciones.",
-            "Revisión de ingredientes, materiales y equipos.",
-            "Verificación de los pedidos y preparación de las recetas.",
-            "Pesado de ingredientes y precalentamiento del horno."
-        ]
-
-        for actividad in actividades:
-            st.markdown(f"- {actividad}")
-
-    # --------------------------------------
-    # PROCESO PRODUCTIVO
-    # --------------------------------------
-
-    with tab4:
-
-        st.subheader("Elaboración de nuestras tortas")
-
-        st.write("""
-        El proceso productivo comprende las operaciones necesarias
-        para transformar los ingredientes en un producto terminado,
-        listo para su comercialización.
-        """)
-
-        pasos = [
-            (
-                "1. Selección y pesado",
-                "Se seleccionan y pesan los ingredientes necesarios."
-            ),
-            (
-                "2. Mezclado",
-                "Se integran los ingredientes para preparar la masa."
-            ),
-            (
-                "3. Preparación de moldes",
-                "Se acondicionan los moldes para recibir la mezcla."
-            ),
-            (
-                "4. Horneado",
-                "Se realiza la cocción de la preparación."
-            ),
-            (
-                "5. Enfriamiento",
-                "Se deja enfriar el producto después del horneado."
-            ),
-            (
-                "6. Rellenado y armado",
-                "Se incorpora el relleno y se ensamblan las partes."
-            ),
-            (
-                "7. Decoración y acabado",
-                "Se realizan los acabados y la presentación final."
-            ),
-            (
-                "8. Control de calidad y empaquetado",
-                "Se verifica el producto y se prepara para su venta."
-            )
-        ]
-
-        for titulo, descripcion in pasos:
-
-            st.markdown(f"""
-            <div style="background:#F8F3EC; padding:13px;
-            border-radius:11px; margin-bottom:9px;">
-                <strong style="color:#A65D54;">
-                    {titulo}
-                </strong>
-                <p style="color:#66584C; margin:4px 0 0 0;">
-                    {descripcion}
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
         st.success(
-            "Resultado: tortas elaboradas, acondicionadas y "
-            "listas para su comercialización."
+            "Resultado: tortas de vainilla y chocolate "
+            "terminadas y listas para su comercialización."
         )
+
 
 
 # ==========================================
