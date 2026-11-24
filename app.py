@@ -679,13 +679,16 @@ elif seccion == "Producción":
         st.subheader(nombre_hoja.strip())
 
         try:
-            df = leer_hoja(nombre_hoja)
-
-            if df is not None and not df.empty:
-                df = df.dropna(how="all")
-                df = df.loc[:, ~df.columns.astype(str).str.contains(
-                    "^Unnamed", case=False
-                )]
+            if nombre_hoja in ["PMP Vainilla", "PMP Chocolate"]:
+    df = pd.read_excel(
+        BytesIO(st.session_state["excel_bytes"]),
+        sheet_name=nombre_hoja,
+        header=None,
+        engine="openpyxl"
+    )
+    df = df.dropna(how="all").dropna(axis=1, how="all")
+else:
+    df = leer_hoja(nombre_hoja)
 
                 if not df.empty:
                     st.dataframe(
