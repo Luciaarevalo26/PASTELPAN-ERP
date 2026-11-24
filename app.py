@@ -83,9 +83,12 @@ MODULOS = [
 ]
 
 seccion = st.sidebar.radio("MENÚ PRINCIPAL", MODULOS)
+if seccion != "Inicio":
+    if st.button("← Volver al menú principal", use_container_width=True):
+        st.session_state["seccion_menu"] = "Inicio"
+        st.rerun()
 
-st.sidebar.divider()
-st.sidebar.caption("Sistema de gestión empresarial")
+
 
 
 # ==========================================
