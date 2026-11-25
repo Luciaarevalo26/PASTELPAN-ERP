@@ -1,1435 +1,798 @@
-
 import streamlit as st
 import pandas as pd
+import openpyxl
 from io import BytesIO
+from pathlib import Path
+import plotly.express as px
+import plotly.graph_objects as go
+import re
+import math
 
+# =========================================================
+# CONFIGURACIÓN GENERAL
+# =========================================================
 st.set_page_config(
     page_title="PASTELPAN ERP",
     page_icon="🎂",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# ==========================================
-# PALETA DE MARCA
-# ==========================================
-
 ROJO = "#C83E3E"
-VERDE = "#A9D18E"
 CORAL = "#E88F91"
 BEIGE = "#F3E8D5"
+VERDE = "#A9D18E"
+ARCHIVO_BASE = "PROYECTO FINAL PASTELPAN GESOOP(2).xlsx"
 
 st.markdown("""
 <style>
-.stApp {
-    background-color: #FFFDF9;
+.stApp {background:#FFFDF9;}
+[data-testid="stSidebar"] {background:#F3E8D5;}
+h1,h2,h3 {color:#C83E3E;}
+div.stButton > button, div.stDownloadButton > button {
+    border-radius:9px; font-weight:600; min-height:40px;
 }
-
-[data-testid="stSidebar"] {
-    background-color: #F3E8D5;
-}
-
-h1, h2, h3 {
-    color: #C83E3E;
-}
-
 div.stButton > button {
-    background-color: #C83E3E;
-    color: white;
-    border-radius: 9px;
-    border: none;
-    font-weight: bold;
-    min-height: 42px;
+    background:#C83E3E; color:white; border:0;
 }
-
 div.stButton > button:hover {
-    background-color: #A82F35;
-    color: white;
-    border: none;
+    background:#A82F35; color:white; border:0;
 }
-
+[data-testid="stMetric"] {
+    background:#FFFFFF; border:1px solid #F0D8D4;
+    padding:14px; border-radius:12px;
+}
+.block-container {padding-top:1.5rem; padding-bottom:2rem;}
 </style>
 """, unsafe_allow_html=True)
 
 
-# ==========================================
-# CONEXIÓN CON EXCEL
-# ==========================================
+# =========================================================
+# CARGA DEL LIBRO Y FUNCIONES AUXILIARES
+# =========================================================
+def cargar_libro_bytes(contenido):
+    return openpyxl.load_workbook(BytesIO(contenido), data_only=True)
 
-def obtener_excel():
 
-    contenido = st.session_state.get("excel_bytes")
+def obtener_bytes_iniciales():
+    carpeta = Path(__file__).resolve().parent
+    ruta = carpeta / ARCHIVO_BASE
+    if ruta.exists():
+        return ruta.read_bytes()
+    # Acepta también el nombre original sin sufijo de carga.
+    candidatos = sorted(carpeta.glob("PROYECTO FINAL PASTELPAN GESOOP*.xlsx"))
+    if candidatos:
+        return candidatos[0].read_bytes()
+    return None
 
-    if contenido is None:
+
+if "excel_bytes" not in st.session_state:
+    st.session_state["excel_bytes"] = obtener_bytes_iniciales()
+
+if "excel_modificado" not in st.session_state:
+    st.session_state["excel_modificado"] = None
+
+if "inventario_editado" not in st.session_state:
+    st.session_state["inventario_editado"] = None
+
+if "movimientos_inventario" not in st.session_state:
+    st.session_state["movimientos_inventario"] = []
+
+
+def bytes_actuales():
+    return st.session_state.get("excel_modificado") or st.session_state.get("excel_bytes")
+
+
+def libro_actual(data_only=True):
+    contenido = bytes_actuales()
+    if not contenido:
         return None
-
-    return pd.ExcelFile(
-        BytesIO(contenido),
-        engine="openpyxl"
-    )
+    return openpyxl.load_workbook(BytesIO(contenido), data_only=data_only)
 
 
-def leer_hoja(nombre, columnas=None):
+def guardar_libro_en_sesion(libro):
+    salida = BytesIO()
+    libro.save(salida)
+    st.session_state["excel_modificado"] = salida.getvalue()
 
-    excel = obtener_excel()
 
-    if excel is None or nombre not in excel.sheet_names:
+def hoja_df(nombre, fila_encabezado=1, fila_inicio=None, fila_fin=None,
+            col_inicio=1, col_fin=None, data_only=True):
+    libro = libro_actual(data_only=data_only)
+    if libro is None or nombre not in libro.sheetnames:
         return pd.DataFrame()
+    ws = libro[nombre]
+    fila_inicio = fila_inicio or fila_encabezado + 1
+    fila_fin = fila_fin or ws.max_row
+    col_fin = col_fin or ws.max_column
+    encabezados = [ws.cell(fila_encabezado, c).value for c in range(col_inicio, col_fin + 1)]
+    filas = []
+    for r in range(fila_inicio, fila_fin + 1):
+        valores = [ws.cell(r, c).value for c in range(col_inicio, col_fin + 1)]
+        if any(v is not None for v in valores):
+            filas.append(valores)
+    if not filas:
+        return pd.DataFrame(columns=[str(x) if x is not None else f"Columna {i+1}" for i, x in enumerate(encabezados)])
+    nombres = []
+    for i, h in enumerate(encabezados):
+        nombres.append(str(h).strip() if h is not None else f"Columna {i+1}")
+    return pd.DataFrame(filas, columns=nombres)
 
+
+def rango_df(nombre, rango, encabezado=True):
+    libro = libro_actual(data_only=True)
+    if libro is None or nombre not in libro.sheetnames:
+        return pd.DataFrame()
+    ws = libro[nombre]
+    filas = list(ws[rango])
+    valores = [[celda.value for celda in fila] for fila in filas]
+    if not valores:
+        return pd.DataFrame()
+    if encabezado:
+        headers = [str(x).strip() if x is not None else f"Campo {i+1}" for i, x in enumerate(valores[0])]
+        return pd.DataFrame(valores[1:], columns=headers).dropna(how="all")
+    return pd.DataFrame(valores).dropna(how="all")
+
+
+def limpiar_df(df):
+    if df.empty:
+        return df
+    out = df.copy()
+    out = out.dropna(axis=1, how="all").dropna(axis=0, how="all")
+    out.columns = [str(c).strip() for c in out.columns]
+    return out
+
+
+def numero(valor):
     try:
-        return pd.read_excel(
-            excel,
-            sheet_name=nombre,
-            header=2,
-            usecols=columnas
-        )
-
-    except Exception:
-        return pd.DataFrame()
+        if valor is None or pd.isna(valor):
+            return 0.0
+        return float(valor)
+    except (TypeError, ValueError):
+        return 0.0
 
 
-# ==========================================
-# FUNCIÓN GENERAL PARA GRÁFICOS
-# ==========================================
-
-def mostrar_grafico_registros(datos, titulo):
-
-    if datos is None or datos.empty:
-        st.info("No hay información suficiente para generar el gráfico.")
-        return
-
-    datos = datos.copy()
-
-    columnas_numericas = datos.select_dtypes(
-        include="number"
-    ).columns.tolist()
-
-    columnas_categoricas = [
-        columna for columna in datos.columns
-        if columna not in columnas_numericas
-        and 1 < datos[columna].nunique(dropna=True) <= 30
-    ]
-
-    st.markdown(f"#### {titulo}")
-
-    if columnas_categoricas and columnas_numericas:
-
-        categoria = columnas_categoricas[0]
-        valor = columnas_numericas[0]
-
-        grafico = (
-            datos.groupby(categoria)[valor]
-            .sum()
-            .sort_values(ascending=False)
-        )
-
-        st.bar_chart(grafico)
-
-    elif columnas_categoricas:
-
-        categoria = columnas_categoricas[0]
-
-        grafico = datos[categoria].value_counts()
-
-        st.bar_chart(grafico)
-
-    elif columnas_numericas:
-
-        st.bar_chart(datos[columnas_numericas])
-
+def mostrar_tabla(df, altura=420):
+    if df is None or df.empty:
+        st.info("No hay registros disponibles en este apartado.")
     else:
-
-        st.info(
-            "No se encontraron columnas adecuadas para representar gráficamente."
-        )
+        st.dataframe(df, use_container_width=True, hide_index=True, height=altura)
 
 
-# ==========================================
-# NAVEGACIÓN
-# ==========================================
+def grafico_barras(df, x, y, titulo, color=None):
+    if df is None or df.empty or x not in df.columns or y not in df.columns:
+        st.info("No hay datos suficientes para generar este gráfico.")
+        return
+    fig = px.bar(df, x=x, y=y, color=color, title=titulo, text_auto=".2s")
+    fig.update_layout(
+        title_x=0.02, plot_bgcolor="white", paper_bgcolor="white",
+        margin=dict(l=15, r=15, t=55, b=15), legend_title_text=""
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
+
+def grafico_linea(df, x, y, titulo, color=None):
+    if df is None or df.empty or x not in df.columns or y not in df.columns:
+        st.info("No hay datos suficientes para generar este gráfico.")
+        return
+    fig = px.line(df, x=x, y=y, color=color, markers=True, title=titulo)
+    fig.update_layout(
+        title_x=0.02, plot_bgcolor="white", paper_bgcolor="white",
+        margin=dict(l=15, r=15, t=55, b=15), legend_title_text=""
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def filtro_opciones(df, columna, etiqueta):
+    if columna not in df.columns:
+        return None
+    opciones = sorted([str(x) for x in df[columna].dropna().unique()])
+    return st.selectbox(etiqueta, ["Todos"] + opciones, key=f"filtro_{etiqueta}")
+
+
+def aplicar_filtro(df, columna, valor):
+    if valor and valor != "Todos" and columna in df.columns:
+        return df[df[columna].astype(str) == str(valor)]
+    return df
+
+
+def titulo_seccion(titulo, descripcion=None):
+    st.title(titulo)
+    if descripcion:
+        st.caption(descripcion)
+
+
+def obtener_indicadores():
+    # La hoja INDICADORES ERP es la fuente central de los cuatro KPI.
+    df = rango_df("INDICADORES ERP", "A4:G7", encabezado=False)
+    if df.empty:
+        return {}
+    salida = {}
+    for _, fila in df.iterrows():
+        nombre = str(fila.iloc[0]) if pd.notna(fila.iloc[0]) else ""
+        salida[nombre] = {
+            "modulo": fila.iloc[1],
+            "resultado": numero(fila.iloc[2]),
+            "unidad": fila.iloc[3],
+            "interpretacion": fila.iloc[4],
+            "formula": fila.iloc[5],
+            "fuente": fila.iloc[6]
+        }
+    return salida
+
+
+# =========================================================
+# MENÚ Y CARGA DEL EXCEL
+# =========================================================
 MODULOS = [
-    "Inicio",
-    "Información",
-    "CRM",
-    "Producción",
-    "Inventarios",
-    "Compras y Proveedores",
-    "Dashboard"
+    "Inicio", "Información", "CRM", "Producción",
+    "Inventarios", "Compras y Proveedores", "Dashboard"
 ]
 
-
-if "seccion_menu" not in st.session_state:
-    st.session_state["seccion_menu"] = "Inicio"
-
-
-def cambiar_seccion(nombre):
-    st.session_state["seccion_menu"] = nombre
-
-
-# ==========================================
-# CARGA DEL ARCHIVO
-# ==========================================
-
-st.sidebar.markdown("# 🎂 PASTELPAN")
-st.sidebar.caption("Una tentación irresistible")
-st.sidebar.divider()
-
-archivo = st.sidebar.file_uploader(
-    "Cargar Excel maestro",
-    type=["xlsx"]
-)
-
-if archivo is not None:
-
-    st.session_state["excel_bytes"] = archivo.getvalue()
-    st.session_state["excel_nombre"] = archivo.name
-
-excel = obtener_excel()
-
-
-# ==========================================
-# MENÚ LATERAL
-# ==========================================
-
 with st.sidebar:
-
-    seccion = st.radio(
-        "MENÚ PRINCIPAL",
-        MODULOS,
-        key="seccion_menu"
-    )
-
+    st.markdown("## 🎂 PASTELPAN ERP")
+    seccion = st.radio("MENÚ PRINCIPAL", MODULOS, index=0)
     st.divider()
+    st.markdown("### Archivo de datos")
+    archivo = st.file_uploader("Cargar Excel maestro (.xlsx)", type=["xlsx"])
+    if archivo is not None:
+        st.session_state["excel_bytes"] = archivo.getvalue()
+        st.session_state["excel_modificado"] = None
+        st.session_state["inventario_editado"] = None
+        st.success("Excel cargado correctamente.")
+    if bytes_actuales():
+        st.success("Fuente Excel disponible")
+        if st.session_state.get("excel_modificado"):
+            st.caption("Hay cambios pendientes de descargar.")
+    else:
+        st.warning("Sube el archivo Excel para iniciar.")
 
-    st.caption("PASTELPAN ERP | Sistema de gestión")
+excel = libro_actual(data_only=True)
 
 
-# ==========================================
-# BOTÓN VOLVER AL MENÚ PRINCIPAL
-# ==========================================
-
-if seccion != "Inicio":
-
-    st.button(
-        "← Volver al menú principal",
-        use_container_width=True,
-        on_click=cambiar_seccion,
-        args=("Inicio",)
-    )
-
-
-# ==========================================
+# =========================================================
 # INICIO
-# ==========================================
-
+# =========================================================
 if seccion == "Inicio":
-
-    st.title("🎂 PASTELPAN ERP")
-    st.subheader("Una tentación irresistible")
-
-    st.write(
-        "Sistema de gestión integral de PASTELPAN."
-    )
-
-    if excel is None:
-
-        st.warning(
-            "Carga el Excel maestro desde el menú lateral."
-        )
-
-    else:
-
-        st.success(
-            "Archivo maestro conectado correctamente."
-        )
-
-        st.metric(
-            "Hojas disponibles",
-            len(excel.sheet_names)
-        )
-
-    st.divider()
-
-    st.subheader("Módulos del sistema")
-
-    columnas = st.columns(3)
-
-    modulos_inicio = [
-        (
-            "🏢 Información",
-            "Información",
-            "Datos generales de la empresa."
-        ),
-        (
-            "👥 CRM",
-            "CRM",
-            "Gestión de clientes y atención."
-        ),
-        (
-            "🏭 Producción",
-            "Producción",
-            "Planificación y control productivo."
-        ),
-        (
-            "📦 Inventarios",
-            "Inventarios",
-            "Ingredientes y materiales."
-        ),
-        (
-            "🛒 Compras",
-            "Compras y Proveedores",
-            "Proveedores y órdenes de compra."
-        ),
-        (
-            "📊 Dashboard",
-            "Dashboard",
-            "Indicadores de gestión."
-        )
-    ]
-
-    for i, (titulo, destino, descripcion) in enumerate(modulos_inicio):
-
-        with columnas[i % 3]:
-
-            with st.container(border=True):
-
-                st.markdown(f"### {titulo}")
-
-                st.write(descripcion)
-
-                st.button(
-                    "Ingresar →",
-                    key=f"acceso_{destino}",
-                    use_container_width=True,
-                    on_click=cambiar_seccion,
-                    args=(destino,)
-                )
-
-
-# ==========================================
-# INFORMACIÓN
-# ==========================================
-
-elif seccion == "Información":
-
-    st.title("🏢 Información de PASTELPAN")
-    st.caption("Una tentación irresistible")
-
-    st.markdown("""
-    <div style="
-        background: linear-gradient(110deg, #F3E8D5, #FCE8E5);
-        padding: 25px;
-        border-radius: 16px;
-        text-align: center;
-        margin-bottom: 20px;">
-        <h1 style="color:#8B5145;">PASTELPAN</h1>
-        <h4 style="color:#A65D54;">
-            Empresa del sector pastelería
-        </h4>
-        <p style="color:#665047;">
-            Elaboración y comercialización de tortas
-            para diferentes ocasiones.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    tab1, tab2, tab3 = st.tabs([
-        "🏢 Datos de la empresa",
-        "🎂 Productos principales",
-        "⚙️ Proceso de fabricación"
-    ])
-
-    # --------------------------------------
-    # DATOS GENERALES
-    # --------------------------------------
-
-    with tab1:
-
-        st.subheader("Datos generales de la empresa")
-
-        datos_empresa = [
-            ("Nombre comercial", "PASTELPAN"),
-            ("Ubicación", "Jr. Leguía 151, Cajamarca"),
-            ("Sector", "Pastelería"),
-            (
-                "Descripción",
-                "Empresa dedicada a la elaboración y comercialización "
-                "de productos de pastelería, con énfasis en tortas "
-                "para celebraciones y ocasiones especiales."
-            ),
-            (
-                "Productos principales",
-                "Torta de vainilla y torta de chocolate"
-            )
-        ]
-
-        for campo, valor in datos_empresa:
-
-            with st.container(border=True):
-
-                st.markdown(f"**{campo}**")
-                st.write(valor)
-
-        st.divider()
-
-        st.subheader("📍 Sede principal de PASTELPAN")
-
-        st.write(
-            "Conoce la ubicación de nuestra sede principal en Cajamarca."
-        )
-
-        st.components.v1.html(
-            """
-            <iframe
-                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1176.948056499078!2d-78.52059577910234!3d-7.153077470205614!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x91b25bdac5d30ed7%3A0x3a49f2db85b5efaa!2sPastelPan!5e0!3m2!1ses-419!2spe!4v1795561087245!5m2!1ses-419!2spe"
-                width="100%"
-                height="400"
-                style="border:0; border-radius:15px;"
-                allowfullscreen=""
-                loading="lazy"
-                referrerpolicy="strict-origin-when-cross-origin">
-            </iframe>
-            """,
-            height=420
-        )
-
-    # --------------------------------------
-    # PRODUCTOS PRINCIPALES
-    # --------------------------------------
-
-    with tab2:
-
-        st.subheader("Características de los productos")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            st.markdown("""
-            <div style="
-                background:#FFF4E8;
-                padding:20px;
-                border-radius:15px;
-                border:1px solid #EBD7C0;">
-                <h3 style="color:#9B684D; text-align:center;">
-                    🍰 Torta de vainilla
-                </h3>
-                <p style="color:#59483D; text-align:justify;">
-                    Producto de pastelería elaborado principalmente
-                    con harina, azúcar, huevos, mantequilla o aceite
-                    y esencia de vainilla.
-                </p>
-                <p style="color:#59483D;">
-                    <b>Características:</b>
-                </p>
-                <ul style="color:#59483D;">
-                    <li>Sabor suave y característico a vainilla.</li>
-                    <li>Textura esponjosa.</li>
-                    <li>Puede incorporar diferentes rellenos.</li>
-                    <li>Permite diversas decoraciones.</li>
-                    <li>Se destina a celebraciones y reuniones.</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-
-        with col2:
-
-            st.markdown("""
-            <div style="
-                background:#FCEAEA;
-                padding:20px;
-                border-radius:15px;
-                border:1px solid #EBCACA;">
-                <h3 style="color:#A34D4D; text-align:center;">
-                    🍫 Torta de chocolate
-                </h3>
-                <p style="color:#59483D; text-align:justify;">
-                    Producto de pastelería elaborado principalmente
-                    con harina, huevos, azúcar, cocoa o chocolate
-                    y los demás ingredientes de la preparación.
-                </p>
-                <p style="color:#59483D;">
-                    <b>Características:</b>
-                </p>
-                <ul style="color:#59483D;">
-                    <li>Sabor característico a chocolate.</li>
-                    <li>Textura suave y esponjosa.</li>
-                    <li>Puede incorporar rellenos y coberturas.</li>
-                    <li>Permite acabados personalizados.</li>
-                    <li>Se destina a celebraciones y reuniones.</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.caption(
-            "Las características descritas corresponden a la "
-            "presentación general de ambos productos."
-        )
-
-    # --------------------------------------
-    # PROCESO DE FABRICACIÓN
-    # --------------------------------------
-
-    with tab3:
-
-        st.subheader("Proceso de fabricación de las tortas")
-
-        st.write("""
-        La elaboración de las tortas de vainilla y chocolate
-        comprende una secuencia de operaciones que permiten
-        transformar los ingredientes en productos terminados.
-        """)
-
-        etapas = [
-            (
-                "01",
-                "Selección y pesado de ingredientes",
-                "Se seleccionan los insumos y se pesan de acuerdo "
-                "con la formulación correspondiente."
-            ),
-            (
-                "02",
-                "Mezclado y preparación de la masa",
-                "Se integran los ingredientes hasta obtener "
-                "una mezcla homogénea."
-            ),
-            (
-                "03",
-                "Preparación de moldes",
-                "Se acondicionan los moldes para recibir "
-                "la mezcla preparada."
-            ),
-            (
-                "04",
-                "Horneado",
-                "La mezcla se somete al proceso de cocción "
-                "para obtener la estructura de la torta."
-            ),
-            (
-                "05",
-                "Enfriamiento",
-                "Se deja enfriar el producto antes de continuar "
-                "con el armado."
-            ),
-            (
-                "06",
-                "Rellenado y armado",
-                "Se incorporan los rellenos y se ensamblan "
-                "las capas de la torta."
-            ),
-            (
-                "07",
-                "Decoración y acabado",
-                "Se aplican las coberturas y decoraciones "
-                "según la presentación del producto."
-            ),
-            (
-                "08",
-                "Control de calidad y empaquetado",
-                "Se verifica la presentación y condición del producto "
-                "para su acondicionamiento y comercialización."
-            )
-        ]
-
-        for numero, titulo, descripcion in etapas:
-
-            st.markdown(f"""
-            <div style="
-                background:#F8F3EC;
-                padding:15px;
-                border-radius:12px;
-                margin-bottom:10px;
-                border-left:5px solid #A9D18E;">
-                <span style="
-                    color:#A65D54;
-                    font-weight:bold;">
-                    ETAPA {numero}
-                </span>
-                <h4 style="color:#6C594B; margin:5px 0;">
-                    {titulo}
-                </h4>
-                <p style="color:#66584C; margin-bottom:0;">
-                    {descripcion}
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.divider()
-
-        st.subheader("Diagrama del proceso de fabricación")
-
-        st.graphviz_chart("""
-        digraph Proceso {
-
-            rankdir=LR;
-
-            node [
-                shape=box,
-                style="rounded,filled",
-                fillcolor="#F3E8D5",
-                color="#A9D18E",
-                fontcolor="#59483D"
-            ];
-
-            A [label="Selección y\\npesado"];
-            B [label="Mezclado y\\npreparación"];
-            C [label="Preparación\\nde moldes"];
-            D [label="Horneado"];
-            E [label="Enfriamiento"];
-            F [label="Rellenado y\\narmado"];
-            G [label="Decoración"];
-            H [label="Control de calidad\\ny empaquetado"];
-
-            A -> B -> C -> D -> E -> F -> G -> H;
-        }
-        """, use_container_width=True)
-
-        st.success(
-            "Resultado: tortas de vainilla y chocolate "
-            "terminadas y listas para su comercialización."
-        )
-
-
-# ==========================================
-# CRM
-# ==========================================
-
-elif seccion == "CRM":
-
-    st.title("👥 Gestión de clientes (CRM)")
-    st.caption("Administración comercial y atención al cliente")
-
-    if excel is None:
-
-        st.warning("Primero carga el Excel maestro.")
-
-    else:
-
-        clientes = leer_hoja("Clientes")
-        ventas = leer_hoja("Atención al cliente", "A:J")
-
-        if clientes.empty or ventas.empty:
-
-            st.error("No se pudieron leer las hojas del CRM.")
-
-        else:
-
-            clientes["Fecha de registro"] = pd.to_datetime(
-                clientes["Fecha de registro"],
-                errors="coerce"
-            )
-
-            ventas["Fecha de venta"] = pd.to_datetime(
-                ventas["Fecha de venta"],
-                errors="coerce"
-            )
-
-            ventas["Calificación NPS (0-5)"] = pd.to_numeric(
-                ventas["Calificación NPS (0-5)"],
-                errors="coerce"
-            )
-
-            ventas["Cantidad (unid.)"] = pd.to_numeric(
-                ventas["Cantidad (unid.)"],
-                errors="coerce"
-            )
-
-            tab1, tab2 = st.tabs([
-                "📋 Directorio de clientes",
-                "🧾 Atención al cliente y ventas"
-            ])
-
-            # ----------------------------------
-            # DIRECTORIO DE CLIENTES
-            # ----------------------------------
-
-            with tab1:
-
-                st.subheader("Directorio de clientes")
-
-                c1, c2, c3 = st.columns(3)
-
-                c1.metric(
-                    "Clientes registrados",
-                    len(clientes)
-                )
-
-                c2.metric(
-                    "Clientes con venta",
-                    (clientes["Estado"] == "Venta").sum()
-                )
-
-                c3.metric(
-                    "Clientes pendientes",
-                    (clientes["Estado"] == "Pendiente").sum()
-                )
-
-                st.divider()
-
-                st.subheader("Distribución de clientes por estado")
-
-                grafico_estados = (
-                    clientes["Estado"]
-                    .dropna()
-                    .value_counts()
-                )
-
-                st.bar_chart(grafico_estados)
-
-                st.divider()
-
-                st.markdown("#### Filtros de búsqueda")
-
-                f1, f2, f3 = st.columns(3)
-
-                with f1:
-
-                    buscar = st.text_input(
-                        "Buscar por nombre, apellido o ID"
-                    )
-
-                with f2:
-
-                    estados = sorted(
-                        clientes["Estado"].dropna().astype(str).unique()
-                    )
-
-                    filtro_estado = st.multiselect(
-                        "Estado",
-                        estados,
-                        default=estados
-                    )
-
-                with f3:
-
-                    asesoras = sorted(
-                        clientes["Asesor asignado"].dropna().astype(str).unique()
-                    )
-
-                    filtro_asesora = st.multiselect(
-                        "Asesora asignada",
-                        asesoras,
-                        default=asesoras
-                    )
-
-                f4, f5 = st.columns(2)
-
-                with f4:
-
-                    productos = sorted(
-                        clientes["Producto de interés"].dropna().astype(str).unique()
-                    )
-
-                    filtro_producto = st.multiselect(
-                        "Producto de interés",
-                        productos,
-                        default=productos
-                    )
-
-                with f5:
-
-                    canales = sorted(
-                        clientes["Canal de contacto"].dropna().astype(str).unique()
-                    )
-
-                    filtro_canal = st.multiselect(
-                        "Canal de contacto",
-                        canales,
-                        default=canales
-                    )
-
-                resultado = clientes.copy()
-
-                if buscar:
-
-                    texto = buscar.strip().lower()
-
-                    mascara = (
-                        resultado["ID cliente"].astype(str).str.lower().str.contains(texto, na=False)
-                        | resultado["Nombre"].astype(str).str.lower().str.contains(texto, na=False)
-                        | resultado["Apellido"].astype(str).str.lower().str.contains(texto, na=False)
-                    )
-
-                    resultado = resultado[mascara]
-
-                resultado = resultado[
-                    resultado["Estado"].isin(filtro_estado)
-                    & resultado["Asesor asignado"].isin(filtro_asesora)
-                    & resultado["Producto de interés"].isin(filtro_producto)
-                    & resultado["Canal de contacto"].isin(filtro_canal)
-                ]
-
-                st.metric(
-                    "Resultados encontrados",
-                    len(resultado)
-                )
-
-                st.dataframe(
-                    resultado,
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                st.download_button(
-                    "Descargar resultados filtrados",
-                    data=resultado.to_csv(index=False).encode("utf-8-sig"),
-                    file_name="clientes_pastelpan.csv",
-                    mime="text/csv"
-                )
-
-            # ----------------------------------
-            # ATENCIÓN AL CLIENTE Y VENTAS
-            # ----------------------------------
-
-            with tab2:
-
-                st.subheader("Registro de atención al cliente y ventas")
-
-                v1, v2, v3 = st.columns(3)
-
-                v1.metric(
-                    "Registros de venta",
-                    len(ventas)
-                )
-
-                unidades = ventas["Cantidad (unid.)"].sum()
-
-                v2.metric(
-                    "Unidades vendidas",
-                    f"{unidades:,.0f}"
-                )
-
-                promedio = ventas["Calificación NPS (0-5)"].mean()
-
-                v3.metric(
-                    "Calificación promedio (0-5)",
-                    f"{promedio:.2f}" if pd.notna(promedio) else "Sin datos"
-                )
-
-                st.divider()
-
-                st.subheader("Ventas por producto")
-
-                grafico_productos = (
-                    ventas.groupby("Producto")["Cantidad (unid.)"]
-                    .sum()
-                )
-
-                st.bar_chart(grafico_productos)
-
-                st.divider()
-
-                st.markdown("#### Filtros de ventas")
-
-                fechas = ventas["Fecha de venta"].dropna()
-
-                if not fechas.empty:
-
-                    minimo = fechas.min().date()
-                    maximo = fechas.max().date()
-
-                    periodo = st.date_input(
-                        "Periodo de consulta",
-                        value=(minimo, maximo),
-                        min_value=minimo,
-                        max_value=maximo
-                    )
-
-                    if isinstance(periodo, tuple) and len(periodo) == 2:
-
-                        fecha_inicio, fecha_fin = periodo
-
-                        v4, v5, v6 = st.columns(3)
-
-                        with v4:
-
-                            productos_v = sorted(
-                                ventas["Producto"].dropna().astype(str).unique()
-                            )
-
-                            producto_v = st.multiselect(
-                                "Producto",
-                                productos_v,
-                                default=productos_v,
-                                key="producto_venta"
-                            )
-
-                        with v5:
-
-                            asesoras_v = sorted(
-                                ventas["Asesor"].dropna().astype(str).unique()
-                            )
-
-                            asesora_v = st.multiselect(
-                                "Asesora",
-                                asesoras_v,
-                                default=asesoras_v
-                            )
-
-                        with v6:
-
-                            locales = sorted(
-                                ventas["Punto de venta / atención"].dropna().astype(str).unique()
-                            )
-
-                            local_v = st.multiselect(
-                                "Local",
-                                locales,
-                                default=locales
-                            )
-
-                        resultado_v = ventas[
-                            ventas["Fecha de venta"].dt.date.between(
-                                fecha_inicio,
-                                fecha_fin
-                            )
-                            & ventas["Producto"].isin(producto_v)
-                            & ventas["Asesor"].isin(asesora_v)
-                            & ventas["Punto de venta / atención"].isin(local_v)
-                        ].copy()
-
-                        st.metric(
-                            "Ventas encontradas",
-                            len(resultado_v)
-                        )
-
-                        st.metric(
-                            "Unidades del periodo",
-                            pd.to_numeric(
-                                resultado_v["Cantidad (unid.)"],
-                                errors="coerce"
-                            ).sum()
-                        )
-
-                        st.dataframe(
-                            resultado_v,
-                            use_container_width=True,
-                            hide_index=True
-                        )
-
-                        st.download_button(
-                            "Descargar ventas filtradas",
-                            data=resultado_v.to_csv(index=False).encode("utf-8-sig"),
-                            file_name="ventas_pastelpan.csv",
-                            mime="text/csv"
-                        )
-
-
-# ==========================================
-# PRODUCCIÓN
-# ==========================================
-
-elif seccion == "Producción":
-
-    from openpyxl import load_workbook
-    from openpyxl.utils import range_boundaries
-
-    st.title("🏭 Producción")
-
+    st.markdown("<h1 style='text-align:center;'>🎂 PASTELPAN</h1>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align:center;color:#6D514B;'>SISTEMA ERP – GESTIÓN EMPRESARIAL</h3>", unsafe_allow_html=True)
     st.markdown(
-        "Consulta las tablas de planificación y control de producción de PASTELPAN."
+        "<p style='text-align:center;font-size:17px;'>Sistema integrado para consultar y gestionar "
+        "la información comercial, productiva, logística y de abastecimiento de PASTELPAN.</p>",
+        unsafe_allow_html=True
     )
-
-    archivo = st.session_state.get("excel_bytes")
-
-    if not archivo:
-
-        st.warning(
-            "Primero debes cargar el archivo Excel de PASTELPAN desde el menú lateral."
-        )
-
+    st.divider()
+    tarjetas = [
+        ("🏢", "Información", "Datos generales de la empresa y productos."),
+        ("🤝", "CRM", "Gestión de clientes potenciales y atención al cliente."),
+        ("🧁", "Producción", "Demanda, planificación, materiales y distribución."),
+        ("📦", "Inventarios", "Consulta y actualización del maestro de materiales."),
+        ("🛒", "Compras y Proveedores", "Directorio de proveedores y órdenes."),
+        ("📊", "Dashboard", "Indicadores principales y complementarios.")
+    ]
+    cols = st.columns(3)
+    for i, (icono, nombre, desc) in enumerate(tarjetas):
+        with cols[i % 3]:
+            st.markdown(
+                f"""<div style="background:white;border:1px solid #F0D8D4;border-radius:14px;
+                padding:22px;min-height:150px;margin-bottom:12px;">
+                <div style="font-size:30px;">{icono}</div>
+                <h3 style="margin:5px 0;">{nombre}</h3>
+                <p style="color:#655A56;">{desc}</p></div>""",
+                unsafe_allow_html=True
+            )
+    if bytes_actuales():
+        st.success("El archivo maestro está conectado. Selecciona un módulo en el menú lateral.")
     else:
+        st.info("Para comenzar, carga el archivo PROYECTO FINAL PASTELPAN GESOOP.xlsx desde el menú lateral.")
 
-        try:
 
-            wb = load_workbook(
-                BytesIO(archivo),
-                data_only=True
-            )
-
-            nombre_hoja = "PRODUCCION (RESUMEN)"
-
-            if nombre_hoja not in wb.sheetnames:
-
-                st.error(
-                    f"No se encontró la hoja: {nombre_hoja}"
-                )
-
-            else:
-
-                ws = wb[nombre_hoja]
-
-                cuadros = {
-                    "Demanda y pronóstico": [
-                        ("Histórico de ventas - Vainilla", "B2:D26", 1),
-                        ("Pronóstico - Vainilla", "F2:I14", 1),
-                        ("Histórico de ventas - Chocolate", "B30:D54", 1),
-                        ("Pronóstico - Chocolate", "F30:I42", 1)
-                    ],
-
-                    "Plan agregado (PAP)": [
-                        ("Plan agregado de producción", "B58:F66", 1)
-                    ],
-
-                    "Programa maestro (PMP)": [
-                        ("PMP - Torta de vainilla", "B70:Y78", 1),
-                        ("PMP - Torta de chocolate", "B82:Y90", 1)
-                    ],
-
-                    "Maestro de materiales": [
-                        ("Maestro de materiales", "B95:L115", 1)
-                    ],
-
-                    "Estructura de materiales (BOM)": [
-                        ("BOM - Torta de vainilla", "B118:H134", 1),
-                        ("BOM - Torta de chocolate", "B137:H149", 1)
-                    ],
-
-                    "TLO": [
-                        ("Tabla de lanzamiento de órdenes", "B152:K172", 1)
-                    ],
-
-                    "BOC": [
-                        ("Balance de operaciones y capacidades", "B176:K210", 2)
-                    ],
-
-                    "CRP": [
-                        ("Planificación de requerimientos de capacidad", "B212:K241", 2)
-                    ],
-
-                    "Distribución (DRP)": [
-                        ("DRP - Torta de vainilla", "B244:K251", 1),
-                        ("DRP - Torta de chocolate", "B253:K260", 1)
-                    ]
-                }
-
-                def aplicar_formato(data):
-
-                    estilos = pd.DataFrame(
-                        "",
-                        index=data.index,
-                        columns=data.columns
-                    )
-
-                    if len(data.columns) > 0:
-
-                        estilos.iloc[:, 0] = (
-                            "font-weight: bold; "
-                            "background-color: #F5EBDD; "
-                            "color: #51483F;"
-                        )
-
-                    return estilos
-
-                def mostrar_cuadro(titulo, rango, filas_encabezado):
-
-                    min_col, min_row, max_col, max_row = range_boundaries(rango)
-
-                    datos = []
-
-                    for fila in ws.iter_rows(
-                        min_row=min_row,
-                        max_row=max_row,
-                        min_col=min_col,
-                        max_col=max_col,
-                        values_only=True
-                    ):
-
-                        datos.append(list(fila))
-
-                    if not datos:
-                        return
-
-                    if filas_encabezado == 2 and len(datos) >= 2:
-
-                        encabezado_superior = datos[0]
-                        encabezado_inferior = datos[1]
-
-                        encabezados = []
-
-                        for superior, inferior in zip(
-                            encabezado_superior,
-                            encabezado_inferior
-                        ):
-
-                            if inferior is not None and str(inferior).strip():
-
-                                encabezados.append(str(inferior).strip())
-
-                            elif superior is not None and str(superior).strip():
-
-                                encabezados.append(str(superior).strip())
-
-                            else:
-
-                                encabezados.append("")
-
-                        filas = datos[2:]
-
-                    else:
-
-                        encabezados = [
-                            str(valor).strip() if valor is not None else ""
-                            for valor in datos[0]
-                        ]
-
-                        filas = datos[1:]
-
-                    encabezados_finales = []
-                    contador = {}
-
-                    for i, encabezado in enumerate(encabezados):
-
-                        nombre = encabezado if encabezado else f"Columna {i + 1}"
-
-                        contador[nombre] = contador.get(nombre, 0) + 1
-
-                        if contador[nombre] > 1:
-                            nombre = f"{nombre} ({contador[nombre]})"
-
-                        encabezados_finales.append(nombre)
-
-                    df = pd.DataFrame(
-                        filas,
-                        columns=encabezados_finales
-                    )
-
-                    df = df.fillna("")
-
-                    for columna in df.columns:
-
-                        df[columna] = df[columna].apply(
-                            lambda valor: round(valor, 1)
-                            if isinstance(valor, (int, float))
-                            and not isinstance(valor, bool)
-                            else valor
-                        )
-
-                    df = df.loc[
-                        ~df.apply(
-                            lambda fila: all(
-                                str(valor).strip() == ""
-                                for valor in fila
-                            ),
-                            axis=1
-                        )
-                    ]
-
-                    st.markdown(f"**{titulo}**")
-
-                    tabla = (
-                        df.style
-                        .format(precision=1, na_rep="")
-                        .apply(aplicar_formato, axis=None)
-                        .set_table_styles([
-                            {
-                                "selector": "th",
-                                "props": [
-                                    ("background-color", "#A9D18E"),
-                                    ("color", "#34452F"),
-                                    ("font-weight", "bold"),
-                                    ("text-align", "center"),
-                                    ("border", "1px solid #D8E5D0"),
-                                    ("padding", "9px")
-                                ]
-                            },
-                            {
-                                "selector": "td",
-                                "props": [
-                                    ("border", "1px solid #E8DED0"),
-                                    ("padding", "8px"),
-                                    ("color", "#51483F")
-                                ]
-                            }
-                        ])
-                    )
-
-                    st.dataframe(
-                        tabla,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=400
-                    )
-
-                    # GRÁFICO DE LA TABLA
-
-                    columnas_numericas = df.select_dtypes(
-                        include="number"
-                    ).columns.tolist()
-
-                    if columnas_numericas and len(df) > 0:
-
-                        st.markdown("**Representación gráfica de los datos**")
-
-                        grafico_df = df.copy()
-
-                        if len(grafico_df.columns) > 0:
-
-                            columna_categoria = grafico_df.columns[0]
-
-                            grafico_df = grafico_df.set_index(
-                                columna_categoria
-                            )
-
-                            grafico_df = grafico_df[
-                                columnas_numericas
-                            ]
-
-                            st.bar_chart(
-                                grafico_df
-                            )
-
-                    st.write("")
-
-                categorias = list(cuadros.keys())
-
-                categoria_seleccionada = st.selectbox(
-                    "Selecciona una sección de producción:",
-                    categorias
-                )
-
-                st.divider()
-
-                for titulo, rango, filas_encabezado in cuadros[categoria_seleccionada]:
-
-                    mostrar_cuadro(
-                        titulo,
-                        rango,
-                        filas_encabezado
-                    )
-
-        except Exception as error:
-
-            st.error(
-                f"No se pudo cargar la información de Producción: {error}"
-            )
-
-
-# ==========================================
-# INVENTARIOS
-# ==========================================
-
-elif seccion == "Inventarios":
-
-    st.title("📦 Gestión de Inventarios")
-
-    if excel is not None:
-
-        datos = leer_hoja("Maestro de Materiales")
-
-        if datos.empty:
-
-            st.warning("No se encontraron datos en el Maestro de Materiales.")
-
-        else:
-
-            st.subheader("Maestro de materiales")
-
-            st.metric(
-                "Materiales registrados",
-                len(datos)
-            )
-
-            st.dataframe(
-                datos,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            st.divider()
-
-            mostrar_grafico_registros(
-                datos,
-                "Representación gráfica de materiales"
-            )
-
-    else:
-
-        st.warning("Carga el Excel maestro.")
-
-
-# ==========================================
-# COMPRAS Y PROVEEDORES
-# ==========================================
-
-elif seccion == "Compras y Proveedores":
-
-    st.title("🛒 Compras y Proveedores")
-
-    if excel is not None:
-
-        opcion = st.selectbox(
-            "Selecciona una sección",
-            [
-                "Proveedores",
-                "Órdenes de Compra y Servicio"
-            ]
-        )
-
-        datos = leer_hoja(opcion)
-
-        if datos.empty:
-
-            st.warning("No se encontraron registros en esta sección.")
-
-        else:
-
-            st.metric(
-                "Registros encontrados",
-                len(datos)
-            )
-
-            st.dataframe(
-                datos,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            st.divider()
-
-            if opcion == "Proveedores":
-
-                mostrar_grafico_registros(
-                    datos,
-                    "Distribución de registros de proveedores"
-                )
-
-            else:
-
-                mostrar_grafico_registros(
-                    datos,
-                    "Representación gráfica de órdenes de compra y servicio"
-                )
-
-    else:
-
-        st.warning("Carga el Excel maestro.")
-
-
-# ==========================================
-# DASHBOARD
-# ==========================================
-
-elif seccion == "Dashboard":
-
-    st.title("📊 Dashboard de PASTELPAN")
-    st.caption("Resumen general de gestión empresarial")
-
+# =========================================================
+# INFORMACIÓN
+# =========================================================
+elif seccion == "Información":
+    titulo_seccion("🏢 Información de PASTELPAN", "Información empresarial y descripción de los productos.")
     if excel is None:
-
-        st.warning("Carga el Excel maestro.")
-
+        st.warning("Carga el archivo Excel maestro.")
     else:
+        df_empresa = hoja_df("Presentación de la empresa ", 1, 1, 79, 1, 12)
+        # Presentación de la empresa conserva su estructura original.
+        st.subheader("Presentación de la empresa")
+        mostrar_tabla(df_empresa, 300)
+        st.divider()
+        st.subheader("Productos principales")
+        df_productos = hoja_df("Definición del producto ", 1, 1, 59, 1, 25)
+        mostrar_tabla(df_productos, 380)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("#### 🎂 Torta de vainilla de 1 kg")
+            st.write("Producto principal elaborado con harina de trigo, azúcar, huevos, aceite, leche, esencia de vainilla y materiales de decoración y empaque, según la estructura de materiales del proyecto.")
+        with c2:
+            st.markdown("#### 🍫 Torta de chocolate de 1 kg")
+            st.write("Producto elaborado con premezcla doble chocolate, huevos, aceite, leche, chantilly, decoración de chocolate y materiales de empaque, según la estructura de materiales del proyecto.")
+        st.caption("Los detalles técnicos y las cantidades por producto se consultan en las secciones BOM y Maestro de Materiales del módulo Producción.")
 
-        ventas = leer_hoja("Atención al cliente", "A:J")
-        clientes = leer_hoja("Clientes")
 
-        if not ventas.empty:
-
-            ventas["Cantidad (unid.)"] = pd.to_numeric(
-                ventas["Cantidad (unid.)"],
-                errors="coerce"
-            )
-
-            ventas["Fecha de venta"] = pd.to_datetime(
-                ventas["Fecha de venta"],
-                errors="coerce"
-            )
-
-            ventas["Calificación NPS (0-5)"] = pd.to_numeric(
-                ventas["Calificación NPS (0-5)"],
-                errors="coerce"
-            )
-
-            total_ventas = len(ventas)
-
-            total_unidades = ventas["Cantidad (unid.)"].sum()
-
-            promedio = ventas["Calificación NPS (0-5)"].mean()
-
-            c1, c2, c3 = st.columns(3)
-
-            c1.metric(
-                "Registros de venta",
-                f"{total_ventas:,}"
-            )
-
-            c2.metric(
-                "Unidades vendidas",
-                f"{total_unidades:,.0f}"
-            )
-
-            c3.metric(
-                "Calificación promedio",
-                f"{promedio:.2f}/5" if pd.notna(promedio) else "Sin datos"
-            )
-
-            st.divider()
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-
-                st.subheader("Ventas por producto")
-
-                grafico_productos = (
-                    ventas.groupby("Producto")["Cantidad (unid.)"]
-                    .sum()
-                )
-
-                st.bar_chart(grafico_productos)
-
-            with col2:
-
-                st.subheader("Evolución de ventas")
-
-                ventas_mes = ventas.dropna(
-                    subset=["Fecha de venta"]
-                ).copy()
-
-                ventas_mes["Mes"] = (
-                    ventas_mes["Fecha de venta"]
-                    .dt.to_period("M")
-                    .astype(str)
-                )
-
-                grafico_meses = (
-                    ventas_mes.groupby("Mes")["Cantidad (unid.)"]
-                    .sum()
-                    .sort_index()
-                )
-
-                if not grafico_meses.empty:
-
-                    st.line_chart(grafico_meses)
-
-                else:
-
-                    st.info("No hay fechas disponibles para mostrar la evolución.")
-
-            st.divider()
-
-            if not clientes.empty:
-
-                st.subheader("Estado de los clientes")
-
-                st.bar_chart(
-                    clientes["Estado"].value_counts()
-                )
-
+# =========================================================
+# CRM
+# =========================================================
+elif seccion == "CRM":
+    titulo_seccion("🤝 CRM – Gestión de relaciones con clientes")
+    if excel is None:
+        st.warning("Carga el archivo Excel maestro.")
+    else:
+        opcion = st.selectbox("Selecciona un apartado", ["Leads / Clientes potenciales", "Atención al cliente", "Ventas"])
+        if opcion == "Leads / Clientes potenciales":
+            st.subheader("Base de clientes potenciales")
+            df = limpiar_df(hoja_df("Clientes", 3, 4, 603, 1, 10))
+            if not df.empty:
+                nombre_cols = [c for c in ["Nombre", "Apellido"] if c in df.columns]
+                if nombre_cols:
+                    df["Cliente"] = df[nombre_cols].fillna("").astype(str).agg(" ".join, axis=1).str.strip()
+                filtros = st.columns(4)
+                with filtros[0]:
+                    estado = filtro_opciones(df, "Estado", "Estado del lead")
+                with filtros[1]:
+                    asesor = filtro_opciones(df, "Asesor asignado", "Asesor")
+                with filtros[2]:
+                    producto = filtro_opciones(df, "Producto de interés", "Producto")
+                with filtros[3]:
+                    cliente = filtro_opciones(df, "Cliente", "Cliente")
+                for col, val in [("Estado", estado), ("Asesor asignado", asesor), ("Producto de interés", producto), ("Cliente", cliente)]:
+                    df = aplicar_filtro(df, col, val)
+                st.metric("Leads encontrados", f"{len(df):,}")
+                mostrar_tabla(df)
+                st.markdown("#### Distribución de leads por estado")
+                if "Estado" in df.columns:
+                    conteo = df["Estado"].fillna("Sin estado").value_counts().rename_axis("Estado").reset_index(name="Cantidad")
+                    grafico_barras(conteo, "Estado", "Cantidad", "Leads por estado")
+                if "Asesor asignado" in df.columns:
+                    st.markdown("#### Leads por asesor")
+                    conteo = df["Asesor asignado"].value_counts().rename_axis("Asesor").reset_index(name="Cantidad")
+                    grafico_barras(conteo, "Asesor", "Cantidad", "Leads asignados por asesor")
+            else:
+                st.warning("No se encontraron registros en la hoja Clientes.")
+        elif opcion == "Atención al cliente":
+            st.subheader("Registro de atención al cliente")
+            df = limpiar_df(hoja_df("Atención al cliente", 3, 4, 1839, 1, 10))
+            if not df.empty:
+                col_fecha = "Fecha de venta" if "Fecha de venta" in df.columns else None
+                col_score = "Calificación NPS (0-5)" if "Calificación NPS (0-5)" in df.columns else None
+                if col_fecha:
+                    df[col_fecha] = pd.to_datetime(df[col_fecha], errors="coerce")
+                if col_score:
+                    df[col_score] = pd.to_numeric(df[col_score], errors="coerce")
+                f1, f2, f3 = st.columns(3)
+                with f1:
+                    asesores = filtro_opciones(df, "Asesor", "Asesor de atención")
+                with f2:
+                    scores = sorted(df[col_score].dropna().unique().tolist()) if col_score else []
+                    score = st.selectbox("Calificación (0 a 5)", ["Todas"] + [str(x) for x in scores])
+                with f3:
+                    if col_fecha and df[col_fecha].notna().any():
+                        fechas = df[col_fecha].dropna()
+                        rango = st.date_input("Periodo de atención", value=(fechas.min().date(), fechas.max().date()))
+                    else:
+                        rango = None
+                df = aplicar_filtro(df, "Asesor", asesores)
+                if score != "Todas" and col_score:
+                    df = df[df[col_score] == float(score)]
+                if rango and col_fecha and isinstance(rango, tuple) and len(rango) == 2:
+                    df = df[df[col_fecha].dt.date.between(rango[0], rango[1])]
+                st.metric("Registros de atención", f"{len(df):,}")
+                mostrar_tabla(df)
+                st.markdown("#### Calificaciones de atención al cliente")
+                if col_score and not df.empty:
+                    distrib = df[col_score].value_counts().sort_index().rename_axis("Calificación").reset_index(name="Cantidad")
+                    grafico_barras(distrib, "Calificación", "Cantidad", "Distribución de calificaciones (0 a 5)")
+                if col_score and not df.empty:
+                    st.metric("Promedio del filtro actual", f"{df[col_score].mean():.2f}/5")
+                st.caption("La escala utilizada es de 0 a 5, conforme a la base del proyecto. No se interpreta como NPS tradicional.")
+            else:
+                st.warning("No se encontraron registros de atención al cliente.")
         else:
+            st.subheader("Ventas registradas")
+            df = limpiar_df(hoja_df("Atención al cliente", 3, 4, 1839, 1, 10))
+            if not df.empty:
+                if "Fecha de venta" in df.columns:
+                    df["Fecha de venta"] = pd.to_datetime(df["Fecha de venta"], errors="coerce")
+                if "Cantidad (unid.)" in df.columns:
+                    df["Cantidad (unid.)"] = pd.to_numeric(df["Cantidad (unid.)"], errors="coerce")
+                f1, f2 = st.columns(2)
+                with f1:
+                    producto = filtro_opciones(df, "Producto", "Producto vendido")
+                with f2:
+                    asesor = filtro_opciones(df, "Asesor", "Asesor de venta")
+                df = aplicar_filtro(df, "Producto", producto)
+                df = aplicar_filtro(df, "Asesor", asesor)
+                mostrar_tabla(df)
+                if "Producto" in df.columns and "Cantidad (unid.)" in df.columns:
+                    ventas_prod = df.groupby("Producto", dropna=False)["Cantidad (unid.)"].sum().reset_index()
+                    grafico_barras(ventas_prod, "Producto", "Cantidad (unid.)", "Unidades vendidas por producto")
 
-            st.warning(
-                "No se encontraron registros de ventas para generar el Dashboard."
+
+# =========================================================
+# PRODUCCIÓN
+# =========================================================
+elif seccion == "Producción":
+    titulo_seccion("🧁 Producción", "Consulta de planificación agregada, materiales, capacidad, rutas y distribución.")
+    if excel is None:
+        st.warning("Carga el archivo Excel maestro.")
+    else:
+        apartados = [
+            "Demanda y pronóstico", "PAP", "PMP – Vainilla", "PMP – Chocolate",
+            "Maestro de materiales", "BOM – Vainilla", "BOM – Chocolate",
+            "TLO", "BOC", "CRP", "Puestos de trabajo",
+            "Hoja de ruta – Vainilla", "Hoja de ruta – Chocolate",
+            "MRP II FINAL", "DRP – Vainilla", "DRP – Chocolate"
+        ]
+        opcion = st.selectbox("Selecciona un apartado de producción", apartados)
+
+        if opcion == "Demanda y pronóstico":
+            st.subheader("Demanda histórica y pronóstico")
+            especificaciones = [
+                ("Demanda histórica – Vainilla", "B2:D26", "Año", "Unidades"),
+                ("Pronóstico – Vainilla", "F2:I14", "Año", "Unidades"),
+                ("Demanda histórica – Chocolate", "B30:D54", "Año", "Unidades"),
+                ("Pronóstico – Chocolate", "F30:I42", "Año", "Unidades")
+            ]
+            for nombre, rango, _, _ in especificaciones:
+                st.markdown(f"#### {nombre}")
+                df = rango_df("PRODUCCION (RESUMEN)", rango, True)
+                mostrar_tabla(df, 250)
+                if not df.empty:
+                    columnas = df.columns.tolist()
+                    col_val = next((c for c in columnas if "UNIDADES" in c.upper()), None)
+                    col_mes = next((c for c in columnas if "MES" in c.upper()), None)
+                    col_anio = next((c for c in columnas if "AÑO" in c.upper() or "AÑOS" in c.upper()), None)
+                    if col_val and col_mes:
+                        graf = df.copy()
+                        graf["Periodo"] = graf[col_mes].astype(str)
+                        if col_anio:
+                            graf["Periodo"] = graf[col_anio].astype(str) + " - " + graf[col_mes].astype(str)
+                        graf[col_val] = pd.to_numeric(graf[col_val], errors="coerce")
+                        graf = graf.dropna(subset=[col_val])
+                        grafico_linea(graf, "Periodo", col_val, nombre)
+        elif opcion == "PAP":
+            st.subheader("Plan agregado de producción (PAP)")
+            df = rango_df("PRODUCCION (RESUMEN)", "B58:F66", True)
+            mostrar_tabla(df)
+            if not df.empty:
+                fila_total = df[df.iloc[:, 0].astype(str).str.contains("Costo Total", case=False, na=False)]
+                if not fila_total.empty:
+                    long = fila_total.melt(id_vars=fila_total.columns[0], var_name="Plan", value_name="Costo")
+                    long["Costo"] = pd.to_numeric(long["Costo"], errors="coerce")
+                    grafico_barras(long, "Plan", "Costo", "Costo total por estrategia PAP")
+        elif opcion.startswith("PMP"):
+            rango = "B70:Y78" if "Vainilla" in opcion else "B82:Y90"
+            st.subheader(opcion)
+            df = rango_df("PRODUCCION (RESUMEN)", rango, True)
+            mostrar_tabla(df, 400)
+            if not df.empty:
+                fila = df[df.iloc[:, 0].astype(str).str.strip().str.upper() == "PMP"]
+                if not fila.empty:
+                    datos = fila.iloc[0, 1:].reset_index()
+                    datos.columns = ["Semana", "Unidades"]
+                    datos["Unidades"] = pd.to_numeric(datos["Unidades"], errors="coerce")
+                    datos["Semana"] = range(1, len(datos) + 1)
+                    grafico_linea(datos, "Semana", "Unidades", "Programa maestro de producción")
+        elif opcion == "Maestro de materiales":
+            st.subheader("Maestro de materiales")
+            df = rango_df("PRODUCCION (RESUMEN)", "B95:L115", True)
+            mostrar_tabla(df, 500)
+            st.caption("La tabla se presenta desde la hoja PRODUCCION (RESUMEN), rango B95:L115.")
+        elif opcion == "BOM – Vainilla":
+            st.subheader("Lista de materiales – Torta de vainilla")
+            df = rango_df("PRODUCCION (RESUMEN)", "B118:H134", True)
+            mostrar_tabla(df)
+        elif opcion == "BOM – Chocolate":
+            st.subheader("Lista de materiales – Torta de chocolate")
+            df = rango_df("PRODUCCION (RESUMEN)", "B137:H149", True)
+            mostrar_tabla(df)
+        elif opcion == "TLO":
+            st.subheader("Tabla de lanzamiento de órdenes (TLO)")
+            df = rango_df("PRODUCCION (RESUMEN)", "B152:K172", True)
+            mostrar_tabla(df, 450)
+        elif opcion == "BOC":
+            st.subheader("Balance de operaciones y carga (BOC)")
+            df = rango_df("PRODUCCION (RESUMEN)", "B176:K210", False)
+            mostrar_tabla(df, 500)
+            st.caption("Se conservan los dos niveles de encabezado: estación de trabajo y tipo de recurso.")
+        elif opcion == "CRP":
+            st.subheader("Planificación de requerimientos de capacidad (CRP)")
+            df = rango_df("PRODUCCION (RESUMEN)", "B212:K241", False)
+            mostrar_tabla(df, 560)
+            st.info("El horizonte de planificación considerado en el proyecto corresponde a noviembre y diciembre, con nueve semanas: Sem. 00 a Sem. 08.")
+        elif opcion == "Puestos de trabajo":
+            st.subheader("Lista de puestos de trabajo")
+            df = rango_df("MRP I", "A38:I42", False)
+            mostrar_tabla(df)
+        elif opcion == "Hoja de ruta – Vainilla":
+            st.subheader("Hoja de ruta – Torta de vainilla")
+            df = rango_df("MRP I", "A56:K65", False)
+            mostrar_tabla(df, 400)
+        elif opcion == "Hoja de ruta – Chocolate":
+            st.subheader("Hoja de ruta – Torta de chocolate")
+            df = rango_df("MRP I", "A71:K80", False)
+            mostrar_tabla(df, 400)
+        elif opcion == "MRP II FINAL":
+            st.subheader("Planificación de recursos de manufactura – MRP II FINAL")
+            st.caption("Se consulta exclusivamente la hoja MRP II FINAL.")
+            libro = libro_actual(data_only=True)
+            ws = libro["MRP II FINAL"]
+            # Se muestran las secciones pobladas de MRP II FINAL sin incorporar MRP II AJUSTADO.
+            for rango, nombre in [
+                ("B2:K20", "Lanzamiento y planificación"),
+                ("B22:K42", "Planificación de recursos"),
+                ("B44:K62", "Programación y requerimientos"),
+                ("B64:K82", "Resumen de planificación")
+            ]:
+                st.markdown(f"#### {nombre}")
+                df = rango_df("MRP II FINAL", rango, False)
+                mostrar_tabla(df, 320)
+        elif opcion == "DRP – Vainilla":
+            st.subheader("Planificación de distribución – Torta de vainilla")
+            df = rango_df("PRODUCCION (RESUMEN)", "B244:K251", True)
+            mostrar_tabla(df)
+            st.caption("Se presenta la planificación por seis sucursales y la fila Fábrica se conserva como referencia de producción.")
+        elif opcion == "DRP – Chocolate":
+            st.subheader("Planificación de distribución – Torta de chocolate")
+            df = rango_df("PRODUCCION (RESUMEN)", "B253:K260", True)
+            mostrar_tabla(df)
+            st.caption("Se presenta la planificación por seis sucursales y la fila Fábrica se conserva como referencia de producción.")
+
+
+# =========================================================
+# INVENTARIOS
+# =========================================================
+elif seccion == "Inventarios":
+    titulo_seccion("📦 Inventarios", "Consulta, registro de materiales y actualización de existencias.")
+    if excel is None:
+        st.warning("Carga el archivo Excel maestro.")
+    else:
+        st.subheader("Maestro de materiales")
+        df_base = rango_df("PRODUCCION (RESUMEN)", "B95:L115", True)
+        if df_base.empty:
+            st.warning("No se encontró el maestro de materiales.")
+        else:
+            df_base.columns = [str(c).strip() for c in df_base.columns]
+            if st.session_state["inventario_editado"] is None:
+                st.session_state["inventario_editado"] = df_base.copy()
+            df_inv = st.session_state["inventario_editado"].copy()
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                busqueda = st.text_input("Buscar por código o material")
+            with c2:
+                tipo = st.selectbox("Tipo de material", ["Todos"] + sorted(df_inv["Tipo"].dropna().astype(str).unique().tolist()))
+            vista = df_inv.copy()
+            if busqueda:
+                vista = vista[
+                    vista["Código"].astype(str).str.contains(busqueda, case=False, na=False)
+                    | vista["Material"].astype(str).str.contains(busqueda, case=False, na=False)
+                ]
+            if tipo != "Todos":
+                vista = vista[vista["Tipo"].astype(str) == tipo]
+            st.metric("Materiales registrados", len(df_inv))
+            edited = st.data_editor(
+                vista,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="fixed",
+                disabled=[c for c in vista.columns if c not in ["Stock actual"]],
+                column_config={"Stock actual": st.column_config.NumberColumn("Stock actual", min_value=0, step=1, format="%.2f")}
             )
+            if st.button("Aplicar cambios de stock", key="guardar_stock"):
+                for idx in edited.index:
+                    df_inv.loc[idx, "Stock actual"] = edited.loc[idx, "Stock actual"]
+                st.session_state["inventario_editado"] = df_inv
+                st.success("Cambios aplicados en la sesión. Descarga el Excel actualizado para conservarlos.")
+            st.divider()
+            with st.expander("Registrar nuevo material"):
+                with st.form("nuevo_material"):
+                    cols = st.columns(3)
+                    codigo = cols[0].text_input("Código (único)")
+                    material = cols[1].text_input("Material")
+                    tipo_n = cols[2].selectbox("Tipo", ["Materia prima", "Insumos", "Material de empaque", "Producto terminado"])
+                    cols2 = st.columns(3)
+                    unidad = cols2[0].text_input("Unidad")
+                    stock = cols2[1].number_input("Stock inicial", min_value=0.0, step=1.0)
+                    seguridad = cols2[2].number_input("Stock de seguridad", min_value=0.0, step=1.0)
+                    cols3 = st.columns(3)
+                    lead = cols3[0].text_input("Lead time", value="1 sem.")
+                    lote = cols3[1].text_input("Lote mínimo")
+                    costo = cols3[2].number_input("Costo unitario", min_value=0.0, step=0.1)
+                    costo_unidad = st.text_input("Unidad de costo", value=unidad)
+                    proveedor = st.text_input("Proveedor")
+                    enviar = st.form_submit_button("Agregar material")
+                    if enviar:
+                        if not codigo.strip() or not material.strip():
+                            st.error("El código y el nombre del material son obligatorios.")
+                        elif codigo.strip() in df_inv["Código"].astype(str).values:
+                            st.error("Ese código ya existe.")
+                        else:
+                            nueva = {
+                                "Código": codigo.strip(), "Material": material.strip(), "Tipo": tipo_n,
+                                "Unidad": unidad, "Stock actual": stock, "Stock seguridad": seguridad,
+                                "Lead time": lead, "Lote mínimo": lote, "Costo unitario": costo,
+                                "Unidad de costo": costo_unidad, "Proveedor": proveedor
+                            }
+                            st.session_state["inventario_editado"] = pd.concat([df_inv, pd.DataFrame([nueva])], ignore_index=True)
+                            st.success("Material agregado en la sesión.")
+            with st.expander("Registrar entrada o salida de inventario"):
+                codigos = st.session_state["inventario_editado"]["Código"].astype(str).tolist()
+                with st.form("movimiento_stock"):
+                    codigo_mov = st.selectbox("Material", codigos)
+                    tipo_mov = st.radio("Movimiento", ["Entrada", "Salida"], horizontal=True)
+                    cantidad = st.number_input("Cantidad", min_value=0.01, step=1.0)
+                    motivo = st.text_input("Motivo / referencia")
+                    ok = st.form_submit_button("Registrar movimiento")
+                    if ok:
+                        tabla = st.session_state["inventario_editado"].copy()
+                        idx = tabla.index[tabla["Código"].astype(str) == codigo_mov][0]
+                        stock_actual = numero(tabla.loc[idx, "Stock actual"])
+                        nuevo_stock = stock_actual + cantidad if tipo_mov == "Entrada" else stock_actual - cantidad
+                        if nuevo_stock < 0:
+                            st.error("La salida supera el stock disponible.")
+                        else:
+                            tabla.loc[idx, "Stock actual"] = nuevo_stock
+                            st.session_state["inventario_editado"] = tabla
+                            st.session_state["movimientos_inventario"].append({
+                                "Código": codigo_mov, "Movimiento": tipo_mov,
+                                "Cantidad": cantidad, "Motivo": motivo
+                            })
+                            st.success(f"Movimiento registrado. Nuevo stock: {nuevo_stock:,.2f}")
+            if st.session_state["movimientos_inventario"]:
+                st.markdown("#### Movimientos registrados en esta sesión")
+                mostrar_tabla(pd.DataFrame(st.session_state["movimientos_inventario"]), 220)
+            if st.button("Guardar inventario en el Excel descargable", key="guardar_inv_excel"):
+                libro_edit = openpyxl.load_workbook(BytesIO(bytes_actuales()), data_only=False)
+                ws_res = libro_edit["PRODUCCION (RESUMEN)"]
+                ws_maestro = libro_edit["Maestro de Materiales"]
+                datos = st.session_state["inventario_editado"]
+                # Actualiza el rango B95:L115 del resumen y la tabla B4:L...
+                for i, fila in datos.iterrows():
+                    r = 96 + i
+                    for j, col in enumerate(["Código", "Material", "Tipo", "Unidad", "Stock actual", "Stock seguridad", "Lead time", "Lote mínimo", "Costo unitario", "Unidad de costo", "Proveedor"], start=2):
+                        ws_res.cell(r, j).value = fila[col]
+                    r2 = 5 + i
+                    for j, col in enumerate(["Código", "Material", "Tipo", "Unidad", "Stock actual", "Stock seguridad", "Lead time", "Lote mínimo", "Costo unitario", "Unidad de costo", "Proveedor"], start=2):
+                        ws_maestro.cell(r2, j).value = fila[col]
+                guardar_libro_en_sesion(libro_edit)
+                st.success("El Excel en memoria se actualizó. Descárgalo desde el botón de la barra lateral inferior.")
+            if bytes_actuales():
+                st.download_button(
+                    "⬇️ Descargar Excel con los cambios",
+                    data=bytes_actuales(),
+                    file_name="PASTELPAN_ERP_actualizado.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+            st.caption("Los cambios se mantienen en la sesión actual y se incorporan al Excel al guardarlo y descargarlo. Para persistencia automática entre sesiones en Streamlit Cloud se requiere conectar una base de datos externa.")
 
 
-# ==========================================
-# PIE DE PÁGINA
-# ==========================================
+# =========================================================
+# COMPRAS Y PROVEEDORES
+# =========================================================
+elif seccion == "Compras y Proveedores":
+    titulo_seccion("🛒 Compras y Proveedores", "Directorio de proveedores y control de órdenes.")
+    if excel is None:
+        st.warning("Carga el archivo Excel maestro.")
+    else:
+        opcion = st.selectbox("Selecciona un apartado", ["Proveedores", "Órdenes de Compra y Servicio"])
+        if opcion == "Proveedores":
+            st.subheader("Directorio de proveedores")
+            df = limpiar_df(hoja_df("Proveedores", 3, 4, 19, 1, 6))
+            if not df.empty:
+                cal_col = "Calificación" if "Calificación" in df.columns else None
+                if cal_col:
+                    df[cal_col] = pd.to_numeric(df[cal_col], errors="coerce")
+                mostrar_tabla(df)
+                if cal_col:
+                    grafico_barras(df, "Nombre del proveedor", cal_col, "Calificación de proveedores (0 a 5)")
+                    st.metric("Calificación promedio", f"{df[cal_col].mean():.2f}/5")
+        else:
+            st.subheader("Órdenes de Compra y Servicio")
+            df = limpiar_df(hoja_df("Órdenes de Compra y Servicio", 3, 4, 23, 1, 7))
+            if not df.empty:
+                if "Monto (S/)" in df.columns:
+                    df["Monto (S/)"] = pd.to_numeric(df["Monto (S/)"], errors="coerce")
+                estado = filtro_opciones(df, "Estado", "Estado de la orden")
+                tipo = filtro_opciones(df, "Tipo", "Tipo de orden")
+                df = aplicar_filtro(df, "Estado", estado)
+                df = aplicar_filtro(df, "Tipo", tipo)
+                st.metric("Órdenes encontradas", len(df))
+                mostrar_tabla(df)
+                if "Estado" in df.columns:
+                    conteo = df["Estado"].fillna("Sin estado").value_counts().rename_axis("Estado").reset_index(name="Cantidad")
+                    grafico_barras(conteo, "Estado", "Cantidad", "Distribución de órdenes por estado")
+                if "Monto (S/)" in df.columns:
+                    st.metric("Monto de las órdenes filtradas", f"S/ {df['Monto (S/)'].sum():,.2f}")
 
+
+# =========================================================
+# DASHBOARD
+# =========================================================
+elif seccion == "Dashboard":
+    titulo_seccion("📊 Dashboard de PASTELPAN", "Indicadores principales y complementarios del ERP.")
+    if excel is None:
+        st.warning("Carga el archivo Excel maestro.")
+    else:
+        indicadores = obtener_indicadores()
+        if not indicadores:
+            st.warning("No se encontraron los cuatro indicadores principales en INDICADORES ERP.")
+        else:
+            nombres = list(indicadores.keys())
+            cols = st.columns(4)
+            for i, nombre in enumerate(nombres[:4]):
+                dato = indicadores[nombre]
+                valor = dato["resultado"]
+                unidad = str(dato["unidad"]).lower()
+                if "porcentaje" in unidad:
+                    texto = f"{valor*100:.2f}%"
+                elif "puntos" in unidad:
+                    texto = f"{valor:.2f}/5"
+                else:
+                    texto = f"{valor:,.0f}"
+                cols[i].metric(nombre, texto)
+                with cols[i].popover("Interpretación"):
+                    st.write(dato["interpretacion"])
+                    st.caption(f"Fuente: {dato['fuente']}")
+            st.divider()
+            st.subheader("Interpretación del indicador de capacidad")
+            st.write(
+                "El 82.23% corresponde al horizonte de planificación de noviembre y diciembre, "
+                "considerando nueve semanas (Sem. 00 a Sem. 08). El indicador relaciona las horas "
+                "requeridas acumuladas del plan con las 4,032 horas de capacidad consignadas para "
+                "el periodo en el CRP del proyecto."
+            )
+            st.caption("El Dashboard toma los resultados principales de la hoja INDICADORES ERP para mantener coherencia con el archivo Excel.")
+            st.divider()
+
+        # Complementarios, se leen de la hoja de indicadores desde fila 13.
+        df_comp = rango_df("INDICADORES ERP", "A12:G48", True)
+        if not df_comp.empty:
+            st.subheader("Indicadores complementarios")
+            df_comp = df_comp.dropna(how="all")
+            mostrar_tabla(df_comp, 360)
+
+        st.divider()
+        st.subheader("Análisis por módulo")
+        c1, c2 = st.columns(2)
+        with c1:
+            clientes = limpiar_df(hoja_df("Clientes", 3, 4, 603, 1, 10))
+            if not clientes.empty and "Estado" in clientes.columns:
+                conteo = clientes["Estado"].fillna("Sin estado").value_counts().rename_axis("Estado").reset_index(name="Cantidad")
+                grafico_barras(conteo, "Estado", "Cantidad", "Leads por estado")
+            proveedores = limpiar_df(hoja_df("Proveedores", 3, 4, 19, 1, 6))
+            if not proveedores.empty and "Calificación" in proveedores.columns:
+                proveedores["Calificación"] = pd.to_numeric(proveedores["Calificación"], errors="coerce")
+                grafico_barras(proveedores, "Nombre del proveedor", "Calificación", "Calificación por proveedor")
+        with c2:
+            atencion = limpiar_df(hoja_df("Atención al cliente", 3, 4, 1839, 1, 10))
+            if not atencion.empty and "Calificación NPS (0-5)" in atencion.columns:
+                atencion["Calificación NPS (0-5)"] = pd.to_numeric(atencion["Calificación NPS (0-5)"], errors="coerce")
+                distrib = atencion["Calificación NPS (0-5)"].value_counts().sort_index().rename_axis("Calificación").reset_index(name="Cantidad")
+                grafico_barras(distrib, "Calificación", "Cantidad", "Atención al cliente – escala 0 a 5")
+            ordenes = limpiar_df(hoja_df("Órdenes de Compra y Servicio", 3, 4, 23, 1, 7))
+            if not ordenes.empty and "Estado" in ordenes.columns:
+                conteo = ordenes["Estado"].value_counts().rename_axis("Estado").reset_index(name="Cantidad")
+                grafico_barras(conteo, "Estado", "Cantidad", "Órdenes por estado")
+
+
+# =========================================================
+# PIE DE PÁGINA Y DESCARGA GENERAL
+# =========================================================
 st.divider()
-
-st.caption(
-    "PASTELPAN ERP | Una tentación irresistible"
-)
+col_a, col_b = st.columns([3, 1])
+with col_a:
+    st.caption("PASTELPAN ERP | Una tentación irresistible")
+with col_b:
+    if bytes_actuales():
+        st.download_button(
+            "Descargar Excel maestro",
+            data=bytes_actuales(),
+            file_name="PASTELPAN_ERP.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="descarga_general"
+        )
