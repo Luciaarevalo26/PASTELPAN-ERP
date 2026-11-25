@@ -919,290 +919,445 @@ elif seccion == "CRM":
 # PRODUCCIÓN
 # ==========================================
 
-elif seccion == "Producción":
+# ==========================================================
+# MÓDULO: PRODUCCIÓN
+# ==========================================================
 
-    from openpyxl import load_workbook
-    from openpyxl.utils import range_boundaries
+from openpyxl import load_workbook
+from io import BytesIO
+import pandas as pd
+import streamlit as st
 
-    st.title("🏭 Producción")
 
-    st.markdown(
-        "Consulta las tablas de planificación y control de producción de PASTELPAN."
-    )
+def obtener_hoja_produccion():
+    archivo = obtener_excel()
 
-    archivo = st.session_state.get("excel_bytes")
+    if archivo is None:
+        st.warning("Primero carga el archivo Excel maestro.")
+        return None
 
-    if not archivo:
+    try:
+        libro = load_workbook(archivo, data_only=True, read_only=True)
 
-        st.warning(
-            "Primero debes cargar el archivo Excel de PASTELPAN desde el menú lateral."
-        )
+        if "PRODUCCION (RESUMEN)" not in libro.sheetnames:
+            st.error("No se encontró la hoja PRODUCCION (RESUMEN).")
+            return None
+
+        return libro["PRODUCCION (RESUMEN)"]
+
+    except Exception as e:
+        st.error(f"No se pudo leer la hoja de producción: {e}")
+        return None
+
+
+def extraer_rango(hoja, rango, encabezado=1):
+    datos = list(hoja[rango])
+
+    filas = [
+        [celda.value for celda in fila]
+        for fila in datos
+    ]
+
+    if not filas:
+        return pd.DataFrame()
+
+    if encabezado == 2 and len(filas) >= 2:
+        encabezados = []
+
+        for superior, inferior in zip(filas[0], filas[1]):
+            if superior and inferior:
+                encabezados.append(f"{superior} - {inferior}")
+            elif superior:
+                encabezados.append(str(superior))
+            elif inferior:
+                encabezados.append(str(inferior))
+            else:
+                encabezados.append("")
+
+        cuerpo = filas[2:]
 
     else:
+        encabezados = [
+            str(valor) if valor is not None else f"Columna {i+1}"
+            for i, valor in enumerate(filas[0])
+        ]
+        cuerpo = filas[1:]
 
-        try:
+    df = pd.DataFrame(cuerpo, columns=encabezados)
 
-            wb = load_workbook(
-                BytesIO(archivo),
-                data_only=True
-            )
+    df = df.dropna(how="all")
+    df = df.loc[:, df.notna().any()]
 
-            nombre_hoja = "PRODUCCION (RESUMEN)"
+    return df
 
-            if nombre_hoja not in wb.sheetnames:
 
-                st.error(
-                    f"No se encontró la hoja: {nombre_hoja}"
-                )
+def mostrar_cuadro_produccion(titulo, rango, encabezado=1):
+    st.subheader(titulo)
 
-            else:
+    hoja = obtener_hoja_produccion()
 
-                ws = wb[nombre_hoja]
+    if hoja is None:
+        return pd.DataFrame()
 
-                cuadros = {
-                    "Demanda y pronóstico": [
-                        ("Histórico de ventas - Vainilla", "B2:D26", 1),
-                        ("Pronóstico - Vainilla", "F2:I14", 1),
-                        ("Histórico de ventas - Chocolate", "B30:D54", 1),
-                        ("Pronóstico - Chocolate", "F30:I42", 1)
-                    ],
+    df = extraer_rango(hoja, rango, encabezado)
 
-                    "Plan agregado (PAP)": [
-                        ("Plan agregado de producción", "B58:F66", 1)
-                    ],
+    if df.empty:
+        st.info("No hay información disponible en este cuadro.")
+        return df
 
-                    "Programa maestro (PMP)": [
-                        ("PMP - Torta de vainilla", "B70:Y78", 1),
-                        ("PMP - Torta de chocolate", "B82:Y90", 1)
-                    ],
+    df_mostrar = df.copy()
 
-                    "Maestro de materiales": [
-                        ("Maestro de materiales", "B95:L115", 1)
-                    ],
+    for columna in df_mostrar.columns:
+        valores = pd.to_numeric(df_mostrar[columna], errors="coerce")
 
-                    "Estructura de materiales (BOM)": [
-                        ("BOM - Torta de vainilla", "B118:H134", 1),
-                        ("BOM - Torta de chocolate", "B137:H149", 1)
-                    ],
+        if valores.notna().any():
+            df_mostrar[columna] = valores.round(1)
 
-                    "TLO": [
-                        ("Tabla de lanzamiento de órdenes", "B152:K172", 1)
-                    ],
+    st.dataframe(
+        df_mostrar,
+        use_container_width=True,
+        hide_index=True
+    )
 
-                    "BOC": [
-                        ("Balance de operaciones y capacidades", "B176:K210", 2)
-                    ],
+    return df
 
-                    "CRP": [
-                        ("Planificación de requerimientos de capacidad", "B212:K241", 2)
-                    ],
 
-                    "Distribución (DRP)": [
-                        ("DRP - Torta de vainilla", "B244:K251", 1),
-                        ("DRP - Torta de chocolate", "B253:K260", 1)
-                    ]
-                }
+def buscar_columna(df, palabras):
+    for columna in df.columns:
+        nombre = str(columna).lower()
 
-                def aplicar_formato(data):
+        if all(palabra.lower() in nombre for palabra in palabras):
+            return columna
 
-                    estilos = pd.DataFrame(
-                        "",
-                        index=data.index,
-                        columns=data.columns
-                    )
+    return None
 
-                    if len(data.columns) > 0:
 
-                        estilos.iloc[:, 0] = (
-                            "font-weight: bold; "
-                            "background-color: #F5EBDD; "
-                            "color: #51483F;"
-                        )
+def mostrar_grafico_evolucion(df, titulo):
+    if df.empty:
+        st.info("No hay datos suficientes para generar el gráfico.")
+        return
 
-                    return estilos
+    # Buscar columna de periodo o mes
+    columna_periodo = None
 
-                def mostrar_cuadro(titulo, rango, filas_encabezado):
+    for columna in df.columns:
+        nombre = str(columna).lower()
 
-                    min_col, min_row, max_col, max_row = range_boundaries(rango)
+        if any(p in nombre for p in [
+            "mes", "periodo", "fecha", "semana"
+        ]):
+            columna_periodo = columna
+            break
 
-                    datos = []
+    # Buscar columna de unidades
+    columna_unidades = None
 
-                    for fila in ws.iter_rows(
-                        min_row=min_row,
-                        max_row=max_row,
-                        min_col=min_col,
-                        max_col=max_col,
-                        values_only=True
-                    ):
+    for columna in df.columns:
+        nombre = str(columna).lower()
 
-                        datos.append(list(fila))
+        if any(p in nombre for p in [
+            "unidad", "cantidad", "venta", "demanda",
+            "pronostico", "pronóstico"
+        ]):
+            valores = pd.to_numeric(df[columna], errors="coerce")
 
-                    if not datos:
-                        return
+            if valores.notna().sum() > 0:
+                columna_unidades = columna
+                break
 
-                    if filas_encabezado == 2 and len(datos) >= 2:
+    if columna_unidades is None:
+        st.warning(
+            f"No se identificó la columna de unidades para {titulo}. "
+            "Revisa los encabezados del Excel."
+        )
+        return
 
-                        encabezado_superior = datos[0]
-                        encabezado_inferior = datos[1]
+    if columna_periodo is None:
+        # Usar la primera columna como periodo si no hay una identificable
+        columna_periodo = df.columns[0]
 
-                        encabezados = []
-
-                        for superior, inferior in zip(
-                            encabezado_superior,
-                            encabezado_inferior
-                        ):
-
-                            if inferior is not None and str(inferior).strip():
-
-                                encabezados.append(str(inferior).strip())
-
-                            elif superior is not None and str(superior).strip():
-
-                                encabezados.append(str(superior).strip())
-
-                            else:
-
-                                encabezados.append("")
-
-                        filas = datos[2:]
-
-                    else:
-
-                        encabezados = [
-                            str(valor).strip() if valor is not None else ""
-                            for valor in datos[0]
-                        ]
-
-                        filas = datos[1:]
-
-                    encabezados_finales = []
-                    contador = {}
-
-                    for i, encabezado in enumerate(encabezados):
-
-                        nombre = encabezado if encabezado else f"Columna {i + 1}"
-
-                        contador[nombre] = contador.get(nombre, 0) + 1
-
-                        if contador[nombre] > 1:
-                            nombre = f"{nombre} ({contador[nombre]})"
-
-                        encabezados_finales.append(nombre)
-
-                    df = pd.DataFrame(
-                        filas,
-                        columns=encabezados_finales
-                    )
-
-                    df = df.fillna("")
-
-                    for columna in df.columns:
-
-                        df[columna] = df[columna].apply(
-                            lambda valor: round(valor, 1)
-                            if isinstance(valor, (int, float))
-                            and not isinstance(valor, bool)
-                            else valor
-                        )
-
-                    df = df.loc[
-                        ~df.apply(
-                            lambda fila: all(
-                                str(valor).strip() == ""
-                                for valor in fila
-                            ),
-                            axis=1
-                        )
-                    ]
-
-                    st.markdown(f"**{titulo}**")
-
-                    tabla = (
-                        df.style
-                        .format(precision=1, na_rep="")
-                        .apply(aplicar_formato, axis=None)
-                        .set_table_styles([
-                            {
-                                "selector": "th",
-                                "props": [
-                                    ("background-color", "#A9D18E"),
-                                    ("color", "#34452F"),
-                                    ("font-weight", "bold"),
-                                    ("text-align", "center"),
-                                    ("border", "1px solid #D8E5D0"),
-                                    ("padding", "9px")
-                                ]
-                            },
-                            {
-                                "selector": "td",
-                                "props": [
-                                    ("border", "1px solid #E8DED0"),
-                                    ("padding", "8px"),
-                                    ("color", "#51483F")
-                                ]
-                            }
-                        ])
-                    )
-
-                    st.dataframe(
-                        tabla,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=400
-                    )
-
-                    # GRÁFICO DE LA TABLA
-
-                    columnas_numericas = df.select_dtypes(
-                        include="number"
-                    ).columns.tolist()
-
-                    if columnas_numericas and len(df) > 0:
-
-                        st.markdown("**Representación gráfica de los datos**")
-
-                        grafico_df = df.copy()
-
-                        if len(grafico_df.columns) > 0:
-
-                            columna_categoria = grafico_df.columns[0]
-
-                            grafico_df = grafico_df.set_index(
-                                columna_categoria
-                            )
-
-                            grafico_df = grafico_df[
-                                columnas_numericas
-                            ]
-
-                            st.bar_chart(
-                                grafico_df
-                            )
-
-                    st.write("")
-
-                categorias = list(cuadros.keys())
-
-                categoria_seleccionada = st.selectbox(
-                    "Selecciona una sección de producción:",
-                    categorias
-                )
-
-                st.divider()
-
-                for titulo, rango, filas_encabezado in cuadros[categoria_seleccionada]:
-
-                    mostrar_cuadro(
-                        titulo,
-                        rango,
-                        filas_encabezado
-                    )
-
-        except Exception as error:
-
-            st.error(
-                f"No se pudo cargar la información de Producción: {error}"
-            )
+    grafico = pd.DataFrame({
+        "Periodo": df[columna_periodo].astype(str),
+        "Unidades": pd.to_numeric(
+            df[columna_unidades],
+            errors="coerce"
+        )
+    })
+
+    grafico = grafico.dropna(subset=["Unidades"])
+
+    if grafico.empty:
+        st.info("No hay unidades numéricas para mostrar.")
+        return
+
+    st.markdown(f"**{titulo}**")
+
+    st.line_chart(
+        grafico.set_index("Periodo"),
+        y="Unidades"
+    )
+
+
+def mostrar_grafico_costos_pap(df):
+    if df.empty:
+        st.info("No hay datos del PAP para graficar.")
+        return
+
+    # Buscar una columna relacionada con costos totales
+    columna_costo = None
+
+    for columna in df.columns:
+        nombre = str(columna).lower()
+
+        if "costo" in nombre and (
+            "total" in nombre or "plan" in nombre
+        ):
+            columna_costo = columna
+            break
+
+    if columna_costo is None:
+        st.warning(
+            "No se encontró una columna identificable de costos "
+            "totales en el PAP. Verifica los encabezados del Excel."
+        )
+        return
+
+    # Buscar la columna que identifica los planes
+    columna_plan = None
+
+    for columna in df.columns:
+        if columna != columna_costo:
+            columna_plan = columna
+            break
+
+    costos = pd.DataFrame({
+        "Plan": df[columna_plan].astype(str),
+        "Costo total": pd.to_numeric(
+            df[columna_costo],
+            errors="coerce"
+        )
+    })
+
+    costos = costos.dropna(subset=["Costo total"])
+
+    if costos.empty:
+        st.info("No hay costos numéricos disponibles.")
+        return
+
+    st.markdown("**Costos totales por plan**")
+
+    st.bar_chart(
+        costos.set_index("Plan"),
+        y="Costo total"
+    )
+
+
+def modulo_produccion():
+    st.title("🏭 Gestión de Producción")
+    st.caption(
+        "Consulta de demanda, planificación y requerimientos "
+        "de producción de PASTELPAN."
+    )
+
+    hoja = obtener_hoja_produccion()
+
+    if hoja is None:
+        return
+
+    pestanas = st.tabs([
+        "Demanda y pronóstico",
+        "PAP",
+        "PMP",
+        "Maestro de materiales",
+        "BOM",
+        "TLO",
+        "BOC",
+        "CRP",
+        "DRP"
+    ])
+
+    # ------------------------------------------------------
+    # 1. DEMANDA Y PRONÓSTICO
+    # ------------------------------------------------------
+    with pestanas[0]:
+        st.header("Demanda y pronóstico")
+
+        st.subheader("Torta de vainilla")
+
+        historico_vainilla = extraer_rango(
+            hoja, "B2:D26", encabezado=1
+        )
+
+        st.markdown("**Histórico de ventas**")
+        st.dataframe(
+            historico_vainilla,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        mostrar_grafico_evolucion(
+            historico_vainilla,
+            "Evolución histórica de unidades - Vainilla"
+        )
+
+        pronostico_vainilla = extraer_rango(
+            hoja, "F2:I14", encabezado=1
+        )
+
+        st.markdown("**Pronóstico**")
+        st.dataframe(
+            pronostico_vainilla,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        mostrar_grafico_evolucion(
+            pronostico_vainilla,
+            "Evolución pronosticada de unidades - Vainilla"
+        )
+
+        st.divider()
+
+        st.subheader("Torta de chocolate")
+
+        historico_chocolate = extraer_rango(
+            hoja, "B30:D54", encabezado=1
+        )
+
+        st.markdown("**Histórico de ventas**")
+        st.dataframe(
+            historico_chocolate,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        mostrar_grafico_evolucion(
+            historico_chocolate,
+            "Evolución histórica de unidades - Chocolate"
+        )
+
+        pronostico_chocolate = extraer_rango(
+            hoja, "F30:I42", encabezado=1
+        )
+
+        st.markdown("**Pronóstico**")
+        st.dataframe(
+            pronostico_chocolate,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        mostrar_grafico_evolucion(
+            pronostico_chocolate,
+            "Evolución pronosticada de unidades - Chocolate"
+        )
+
+    # ------------------------------------------------------
+    # 2. PAP
+    # ------------------------------------------------------
+    with pestanas[1]:
+        st.header("Plan Agregado de Producción")
+
+        pap = mostrar_cuadro_produccion(
+            "Plan Agregado de Producción (PAP)",
+            "B58:F66"
+        )
+
+        mostrar_grafico_costos_pap(pap)
+
+    # ------------------------------------------------------
+    # 3. PMP
+    # ------------------------------------------------------
+    with pestanas[2]:
+        st.header("Programa Maestro de Producción")
+
+        mostrar_cuadro_produccion(
+            "PMP - Torta de vainilla",
+            "B70:Y78"
+        )
+
+        mostrar_cuadro_produccion(
+            "PMP - Torta de chocolate",
+            "B82:Y90"
+        )
+
+    # ------------------------------------------------------
+    # 4. MAESTRO DE MATERIALES
+    # ------------------------------------------------------
+    with pestanas[3]:
+        st.header("Maestro de materiales")
+
+        mostrar_cuadro_produccion(
+            "Listado de materiales",
+            "B95:L115"
+        )
+
+    # ------------------------------------------------------
+    # 5. BOM
+    # ------------------------------------------------------
+    with pestanas[4]:
+        st.header("Lista de materiales (BOM)")
+
+        mostrar_cuadro_produccion(
+            "BOM - Torta de vainilla",
+            "B118:H134"
+        )
+
+        mostrar_cuadro_produccion(
+            "BOM - Torta de chocolate",
+            "B137:H149"
+        )
+
+    # ------------------------------------------------------
+    # 6. TLO
+    # ------------------------------------------------------
+    with pestanas[5]:
+        st.header("Tiempos y lotes de operación (TLO)")
+
+        mostrar_cuadro_produccion(
+            "TLO",
+            "B152:K172"
+        )
+
+    # ------------------------------------------------------
+    # 7. BOC
+    # ------------------------------------------------------
+    with pestanas[6]:
+        st.header("Balance de operaciones y capacidades (BOC)")
+
+        mostrar_cuadro_produccion(
+            "BOC",
+            "B176:K210",
+            encabezado=2
+        )
+
+    # ------------------------------------------------------
+    # 8. CRP
+    # ------------------------------------------------------
+    with pestanas[7]:
+        st.header("Planificación de requerimientos de capacidad (CRP)")
+
+        mostrar_cuadro_produccion(
+            "CRP",
+            "B212:K241",
+            encabezado=2
+        )
+
+    # ------------------------------------------------------
+    # 9. DRP
+    # ------------------------------------------------------
+    with pestanas[8]:
+        st.header("Planificación de distribución (DRP)")
+
+        mostrar_cuadro_produccion(
+            "DRP - Torta de vainilla",
+            "B244:K251"
+        )
+
+        mostrar_cuadro_produccion(
+            "DRP - Torta de chocolate",
+            "B253:K260"
+        )
 
 
 # ==========================================
