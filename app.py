@@ -474,15 +474,29 @@ elif seccion == "Información":
         st.subheader("Datos generales de la empresa")
         datos_empresa = [
             ("Nombre comercial", "PASTELPAN"),
+            ("RUC", "10440919753"),
             ("Ubicación", "Jr. Leguía 151, Cajamarca"),
             ("Sector", "Pastelería"),
-            ("Descripción", "Empresa dedicada a la elaboración y comercialización de productos de pastelería, con énfasis en tortas para celebraciones y ocasiones especiales."),
+            ("Descripción", "Empresa familiar dedicada a la elaboración y comercialización de productos de panadería, pastelería y repostería, con énfasis en tortas para celebraciones y ocasiones especiales."),
             ("Productos principales", "Torta de vainilla y torta de chocolate")
         ]
         for campo, valor in datos_empresa:
             with st.container(border=True):
                 st.markdown(f"**{campo}**")
                 st.write(valor)
+
+        st.subheader("Historia de PASTELPAN")
+        st.write(
+            "PASTELPAN nació como un emprendimiento familiar impulsado por su fundador, "
+            "quien inició las actividades adquiriendo un horno industrial. En sus primeros "
+            "años, el propietario asumía distintas labores, desde la producción y limpieza "
+            "hasta la atención al cliente. Con el crecimiento de su clientela, la empresa "
+            "amplió su oferta hacia tortas personalizadas, bocaditos dulces y salados, y "
+            "postres individuales. También mejoró su infraestructura e incorporó maquinaria "
+            "y colaboradores para fortalecer su capacidad productiva. Actualmente, busca "
+            "mantener la calidad de sus productos, satisfacer las necesidades de sus clientes "
+            "y consolidar su presencia en el mercado cajamarquino."
+        )
 
         st.divider()
         st.subheader("📍 Sede principal de PASTELPAN")
@@ -556,7 +570,36 @@ elif seccion == "Información":
             </div>
             """, unsafe_allow_html=True)
         st.divider()
-        st.subheader("Diagrama del proceso de fabricación")
+        st.subheader("Diagramas de análisis del proceso (DAP)")
+        carpeta_assets = Path(__file__).resolve().parent / "assets"
+        col_dap_vainilla, col_dap_chocolate = st.columns(2)
+
+        with col_dap_vainilla:
+            st.markdown("#### DAP – Torta de vainilla")
+            ruta_dap_vainilla = carpeta_assets / "DAP_Vainilla.jpg"
+            if ruta_dap_vainilla.exists():
+                st.image(
+                    str(ruta_dap_vainilla),
+                    caption="Diagrama de análisis del proceso de la torta de vainilla",
+                    use_container_width=True
+                )
+            else:
+                st.warning("No se encontró assets/DAP_Vainilla.jpg.")
+
+        with col_dap_chocolate:
+            st.markdown("#### DAP – Torta de chocolate")
+            ruta_dap_chocolate = carpeta_assets / "DAP_Chocolate.jpg"
+            if ruta_dap_chocolate.exists():
+                st.image(
+                    str(ruta_dap_chocolate),
+                    caption="Diagrama de análisis del proceso de la torta de chocolate",
+                    use_container_width=True
+                )
+            else:
+                st.warning("No se encontró assets/DAP_Chocolate.jpg.")
+
+        st.divider()
+        st.subheader("Diagrama general del proceso de fabricación")
         st.graphviz_chart("""
         digraph Proceso {
             rankdir=LR;
@@ -809,11 +852,21 @@ elif seccion == "Producción":
             df = rango_df("PRODUCCION (RESUMEN)", "B244:K251", True)
             mostrar_tabla(df)
             st.caption("Se presenta la planificación por seis sucursales y la fila Fábrica se conserva como referencia de producción.")
+            ruta_drp = Path(__file__).resolve().parent / "assets" / "DRP.jpg"
+            if ruta_drp.exists():
+                st.image(str(ruta_drp), caption="Diagrama de planificación de distribución (DRP)", use_container_width=True)
+            else:
+                st.warning("No se encontró assets/DRP.jpg.")
         elif opcion == "DRP – Chocolate":
             st.subheader("Planificación de distribución – Torta de chocolate")
             df = rango_df("PRODUCCION (RESUMEN)", "B253:K260", True)
             mostrar_tabla(df)
             st.caption("Se presenta la planificación por seis sucursales y la fila Fábrica se conserva como referencia de producción.")
+            ruta_drp = Path(__file__).resolve().parent / "assets" / "DRP.jpg"
+            if ruta_drp.exists():
+                st.image(str(ruta_drp), caption="Diagrama de planificación de distribución (DRP)", use_container_width=True)
+            else:
+                st.warning("No se encontró assets/DRP.jpg.")
 
 
 # =========================================================
