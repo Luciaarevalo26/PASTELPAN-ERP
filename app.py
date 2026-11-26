@@ -135,6 +135,22 @@ def hoja_df(nombre, fila_encabezado=1, fila_inicio=None, fila_fin=None,
     return pd.DataFrame(filas, columns=nombres)
 
 
+def nombres_columnas_unicos(encabezados):
+    """Genera encabezados no vacíos y únicos para evitar errores de PyArrow/Streamlit."""
+    usados = set()
+    nombres = []
+    for i, encabezado in enumerate(encabezados):
+        base = str(encabezado).strip() if encabezado is not None and str(encabezado).strip() else f"Campo {i+1}"
+        nombre = base
+        consecutivo = 2
+        while nombre in usados:
+            nombre = f"{base} ({consecutivo})"
+            consecutivo += 1
+        usados.add(nombre)
+        nombres.append(nombre)
+    return nombres
+
+
 def rango_df(nombre, rango, encabezado=True):
     libro = libro_actual(data_only=True)
     if libro is None or nombre not in libro.sheetnames:
@@ -145,7 +161,7 @@ def rango_df(nombre, rango, encabezado=True):
     if not valores:
         return pd.DataFrame()
     if encabezado:
-        headers = [str(x).strip() if x is not None else f"Campo {i+1}" for i, x in enumerate(valores[0])]
+        headers = nombres_columnas_unicos(valores[0])
         return pd.DataFrame(valores[1:], columns=headers).dropna(how="all")
     return pd.DataFrame(valores).dropna(how="all")
 
@@ -190,17 +206,30 @@ def mostrar_tabla(df, altura=420):
     if df is None or df.empty:
         st.info("No hay registros disponibles en este apartado.")
     else:
-        formato = {col: formato_numero for col in df.columns}
+        # Protección adicional: algunas hojas contienen encabezados repetidos
+        # por celdas combinadas o títulos duplicados en el Excel.
+        df_vista = df.copy()
+        df_vista.columns = nombres_columnas_unicos(df_vista.columns.tolist())
+        formato = {col: formato_numero for col in df_vista.columns}
         st.dataframe(
-            df.style.format(formato, na_rep="—"),
+            df_vista.style.format(formato, na_rep="—"),
             use_container_width=True, hide_index=True, height=altura
         )
 
 
+def cambiar_seccion(nombre):
+    """Actualiza la navegación desde el callback, antes de crear el radio."""
+    st.session_state["seccion_nav"] = nombre
+
+
 def boton_volver_inicio():
-    if st.button("← Volver al inicio", key=f"volver_inicio_{st.session_state.get('seccion_nav', 'modulo')}"):
-        st.session_state["seccion_nav"] = "Inicio"
-        st.rerun()
+    st.button(
+        "← Volver al menú principal",
+        key=f"volver_inicio_{st.session_state.get('seccion_nav', 'modulo')}",
+        use_container_width=True,
+        on_click=cambiar_seccion,
+        args=("Inicio",)
+    )
 
 
 def crear_df_pmp(fila_encabezado, fila_datos):
@@ -210,10 +239,7 @@ def crear_df_pmp(fila_encabezado, fila_datos):
     ws = libro["PRODUCCION (RESUMEN)"]
     encabezados = [ws.cell(fila_encabezado, c).value for c in range(2, 27)]  # B:Z
     valores = [ws.cell(fila_datos, c).value for c in range(2, 27)]  # B:Z
-    columnas = [
-        str(h).strip() if h is not None else f"Campo {i+1}"
-        for i, h in enumerate(encabezados)
-    ]
+    columnas = nombres_columnas_unicos(encabezados)
     return pd.DataFrame([valores], columns=columnas).dropna(axis=1, how="all")
 
 
@@ -362,9 +388,13 @@ if seccion == "Inicio":
                 <p style="color:#655A56;min-height:40px;">{desc}</p></div>""",
                 unsafe_allow_html=True
             )
-            if st.button(f"Abrir {nombre} →", key=f"abrir_{i}", use_container_width=True):
-                st.session_state["seccion_nav"] = nombre
-                st.rerun()
+            st.button(
+                f"Abrir {nombre} →",
+                key=f"abrir_{i}",
+                use_container_width=True,
+                on_click=cambiar_seccion,
+                args=(nombre,)
+            )
     if bytes_actuales():
         st.success("El archivo maestro está conectado. Accede a cada módulo con su botón.")
     else:
@@ -376,26 +406,127 @@ if seccion == "Inicio":
 # =========================================================
 elif seccion == "Información":
     boton_volver_inicio()
-    titulo_seccion("🏢 Información de PASTELPAN", "Información empresarial y descripción de los productos.")
-    if excel is None:
-        st.warning("Carga el archivo Excel maestro.")
-    else:
-        df_empresa = hoja_df("Presentación de la empresa ", 1, 1, 79, 1, 12)
-        # Presentación de la empresa conserva su estructura original.
-        st.subheader("Presentación de la empresa")
-        mostrar_tabla(df_empresa, 300)
+    st.title("🏢 Información de PASTELPAN")
+    st.caption("Una tentación irresistible")
+
+    st.markdown("""
+    <div style="background:linear-gradient(110deg,#F3E8D5,#FCE8E5);
+        padding:25px;border-radius:16px;text-align:center;margin-bottom:20px;">
+        <h1 style="color:#8B5145;">PASTELPAN</h1>
+        <h4 style="color:#A65D54;">Empresa del sector pastelería</h4>
+        <p style="color:#665047;">Elaboración y comercialización de tortas para diferentes ocasiones.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    tab1, tab2, tab3 = st.tabs([
+        "🏢 Datos de la empresa",
+        "🎂 Productos principales",
+        "⚙️ Proceso de fabricación"
+    ])
+
+    with tab1:
+        st.subheader("Datos generales de la empresa")
+        datos_empresa = [
+            ("Nombre comercial", "PASTELPAN"),
+            ("Ubicación", "Jr. Leguía 151, Cajamarca"),
+            ("Sector", "Pastelería"),
+            ("Descripción", "Empresa dedicada a la elaboración y comercialización de productos de pastelería, con énfasis en tortas para celebraciones y ocasiones especiales."),
+            ("Productos principales", "Torta de vainilla y torta de chocolate")
+        ]
+        for campo, valor in datos_empresa:
+            with st.container(border=True):
+                st.markdown(f"**{campo}**")
+                st.write(valor)
+
         st.divider()
-        st.subheader("Productos principales")
-        df_productos = hoja_df("Definición del producto ", 1, 1, 59, 1, 25)
-        mostrar_tabla(df_productos, 380)
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("#### 🎂 Torta de vainilla de 1 kg")
-            st.write("Producto principal elaborado con harina de trigo, azúcar, huevos, aceite, leche, esencia de vainilla y materiales de decoración y empaque, según la estructura de materiales del proyecto.")
-        with c2:
-            st.markdown("#### 🍫 Torta de chocolate de 1 kg")
-            st.write("Producto elaborado con premezcla doble chocolate, huevos, aceite, leche, chantilly, decoración de chocolate y materiales de empaque, según la estructura de materiales del proyecto.")
-        st.caption("Los detalles técnicos y las cantidades por producto se consultan en las secciones BOM y Maestro de Materiales del módulo Producción.")
+        st.subheader("📍 Sede principal de PASTELPAN")
+        st.write("Conoce la ubicación de nuestra sede principal en Cajamarca.")
+        st.components.v1.html(
+            """
+            <iframe
+                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d1176.948056499078!2d-78.52059577910234!3d-7.153077470205614!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x91b25bdac5d30ed7%3A0x3a49f2db85b5efaa!2sPastelPan!5e0!3m2!1ses-419!2spe!4v1795561087245!5m2!1ses-419!2spe"
+                width="100%" height="400" style="border:0;border-radius:15px;"
+                allowfullscreen="" loading="lazy"
+                referrerpolicy="strict-origin-when-cross-origin">
+            </iframe>
+            """,
+            height=420
+        )
+
+    with tab2:
+        st.subheader("Características de los productos")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("""
+            <div style="background:#FFF4E8;padding:20px;border-radius:15px;border:1px solid #EBD7C0;">
+                <h3 style="color:#9B684D;text-align:center;">🍰 Torta de vainilla</h3>
+                <p style="color:#59483D;text-align:justify;">Producto de pastelería elaborado principalmente con harina, azúcar, huevos, mantequilla o aceite y esencia de vainilla.</p>
+                <p style="color:#59483D;"><b>Características:</b></p>
+                <ul style="color:#59483D;">
+                    <li>Sabor suave y característico a vainilla.</li>
+                    <li>Textura esponjosa.</li>
+                    <li>Puede incorporar diferentes rellenos.</li>
+                    <li>Permite diversas decoraciones.</li>
+                    <li>Se destina a celebraciones y reuniones.</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown("""
+            <div style="background:#FCEAEA;padding:20px;border-radius:15px;border:1px solid #EBCACA;">
+                <h3 style="color:#A34D4D;text-align:center;">🍫 Torta de chocolate</h3>
+                <p style="color:#59483D;text-align:justify;">Producto de pastelería elaborado principalmente con harina, huevos, azúcar, cocoa o chocolate y los demás ingredientes de la preparación.</p>
+                <p style="color:#59483D;"><b>Características:</b></p>
+                <ul style="color:#59483D;">
+                    <li>Sabor característico a chocolate.</li>
+                    <li>Textura suave y esponjosa.</li>
+                    <li>Puede incorporar rellenos y coberturas.</li>
+                    <li>Permite acabados personalizados.</li>
+                    <li>Se destina a celebraciones y reuniones.</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+        st.caption("Las características descritas corresponden a la presentación general de ambos productos.")
+
+    with tab3:
+        st.subheader("Proceso de fabricación de las tortas")
+        st.write("La elaboración de las tortas de vainilla y chocolate comprende una secuencia de operaciones que permiten transformar los ingredientes en productos terminados.")
+        etapas = [
+            ("01", "Selección y pesado de ingredientes", "Se seleccionan los insumos y se pesan de acuerdo con la formulación correspondiente."),
+            ("02", "Mezclado y preparación de la masa", "Se integran los ingredientes hasta obtener una mezcla homogénea."),
+            ("03", "Preparación de moldes", "Se acondicionan los moldes para recibir la mezcla preparada."),
+            ("04", "Horneado", "La mezcla se somete al proceso de cocción para obtener la estructura de la torta."),
+            ("05", "Enfriamiento", "Se deja enfriar el producto antes de continuar con el armado."),
+            ("06", "Rellenado y armado", "Se incorporan los rellenos y se ensamblan las capas de la torta."),
+            ("07", "Decoración y acabado", "Se aplican las coberturas y decoraciones según la presentación del producto."),
+            ("08", "Control de calidad y empaquetado", "Se verifica la presentación y condición del producto para su acondicionamiento y comercialización.")
+        ]
+        for numero_etapa, titulo_etapa, descripcion in etapas:
+            st.markdown(f"""
+            <div style="background:#F8F3EC;padding:15px;border-radius:12px;margin-bottom:10px;border-left:5px solid #A9D18E;">
+                <span style="color:#A65D54;font-weight:bold;">ETAPA {numero_etapa}</span>
+                <h4 style="color:#6C594B;margin:5px 0;">{titulo_etapa}</h4>
+                <p style="color:#66584C;margin-bottom:0;">{descripcion}</p>
+            </div>
+            """, unsafe_allow_html=True)
+        st.divider()
+        st.subheader("Diagrama del proceso de fabricación")
+        st.graphviz_chart("""
+        digraph Proceso {
+            rankdir=LR;
+            node [shape=box,style="rounded,filled",fillcolor="#F3E8D5",color="#A9D18E",fontcolor="#59483D"];
+            A [label="Selección y\npesado"];
+            B [label="Mezclado y\npreparación"];
+            C [label="Preparación\nde moldes"];
+            D [label="Horneado"];
+            E [label="Enfriamiento"];
+            F [label="Rellenado y\narmado"];
+            G [label="Decoración"];
+            H [label="Control de calidad\ny empaquetado"];
+            A -> B -> C -> D -> E -> F -> G -> H;
+        }
+        """, use_container_width=True)
+        st.success("Resultado: tortas de vainilla y chocolate terminadas y listas para su comercialización.")
 
 
 # =========================================================
@@ -837,12 +968,11 @@ elif seccion == "Dashboard":
             interpret_cols = st.columns(4)
             for i, nombre in enumerate(nombres):
                 dato = indicadores[nombre]
-                interpret_cols[i].markdown(
-                    f'''<div class="interpretacion-kpi">
-                        <strong>Interpretación</strong><br>{dato["interpretacion"]}
-                    </div>''',
-                    unsafe_allow_html=True
-                )
+                with interpret_cols[i]:
+                    with st.popover("ⓘ Ver interpretación", use_container_width=True):
+                        st.markdown(f"**{nombre}**")
+                        st.write(dato["interpretacion"])
+                        st.caption(f"Fuente: {dato['fuente']}")
             st.caption("Los cuatro indicadores principales se obtienen directamente de la hoja INDICADORES ERP.")
         else:
             st.warning("No se encontraron los cuatro indicadores principales en INDICADORES ERP.")
