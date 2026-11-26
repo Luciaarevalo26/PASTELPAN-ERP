@@ -758,7 +758,7 @@ elif seccion == "Producción":
             st.caption("La tabla se presenta desde la hoja PRODUCCION (RESUMEN), rango B95:L115.")
         elif opcion == "BOM – Vainilla":
             st.subheader("Lista de materiales – Torta de vainilla")
-           ruta_bom_vainilla = Path(__file__).resolve().parent / "assets" / "bom_vainilla.jpg"
+            ruta_bom_vainilla = Path(__file__).resolve().parent / "assets" / "bom_vainilla.jpg"
             if ruta_bom_vainilla.exists():
                 st.image(str(ruta_bom_vainilla), caption="BOM – Torta de vainilla", use_container_width=True)
             df = rango_df("PRODUCCION (RESUMEN)", "B118:H134", True)
