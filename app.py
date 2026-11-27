@@ -629,48 +629,213 @@ elif seccion == "CRM":
     else:
         opcion = st.selectbox("Selecciona un apartado", ["Leads / Clientes potenciales", "Atención al cliente", "Ventas"])
         if opcion == "Leads / Clientes potenciales":
-            st.subheader("Base de clientes potenciales")
-            df = limpiar_df(hoja_df("Clientes", 3, 4, 603, 1, 10))
-            if not df.empty:
-                nombre_cols = [c for c in ["Nombre", "Apellido"] if c in df.columns]
-                if nombre_cols:
-                    df["Cliente"] = df[nombre_cols].fillna("").astype(str).agg(" ".join, axis=1).str.strip()
-                # Búsqueda directa por identificador de cliente, si existe en la hoja.
-                columna_id = next(
-                    (c for c in df.columns
-                     if "id" in c.lower() and "client" in c.lower()),
-                    next((c for c in df.columns if c.strip().lower() in ["id", "codigo cliente", "código cliente"]), None)
+            st.subheader("Gestión de Lead – Registro de clientes potenciales")
+            columnas_leads = [
+                "ID cliente", "Nombre", "Apellido", "Celular", "Correo electrónico",
+                "Fecha de registro", "Canal de contacto", "Producto de interés",
+                "Asesor asignado", "Estado"
+            ]
+            estados_lead = ["Pendiente", "Descartado", "Contactado", "Cotizado", "Venta"]
+
+            # La base se carga una sola vez por sesión para permitir altas y ediciones.
+            if "crm_leads" not in st.session_state:
+                base_leads = limpiar_df(hoja_df("Clientes", 3, 4, 603, 1, 10))
+                if base_leads.empty:
+                    base_leads = pd.DataFrame(columns=columnas_leads)
+                else:
+                    for columna in columnas_leads:
+                        if columna not in base_leads.columns:
+                            base_leads[columna] = None
+                    base_leads = base_leads[columnas_leads].copy()
+                st.session_state["crm_leads"] = base_leads.reset_index(drop=True)
+
+            df_leads = st.session_state["crm_leads"].copy()
+
+            # Normaliza estados heredados y evita valores fuera de la lista solicitada.
+            df_leads["Estado"] = df_leads["Estado"].fillna("Pendiente").astype(str)
+            df_leads.loc[~df_leads["Estado"].isin(estados_lead), "Estado"] = "Pendiente"
+
+            with st.expander("➕ Registrar un nuevo cliente potencial", expanded=True):
+                with st.form("crm_form_nuevo_lead", clear_on_submit=True):
+                    c1, c2, c3 = st.columns(3)
+                    nombre_n = c1.text_input("Nombre *")
+                    apellido_n = c2.text_input("Apellido *")
+                    celular_n = c3.text_input("Celular")
+                    c4, c5, c6 = st.columns(3)
+                    correo_n = c4.text_input("Correo electrónico")
+                    fecha_n = c5.date_input("Fecha de registro", value=pd.Timestamp.today().date())
+                    canal_n = c6.selectbox(
+                        "Canal de contacto",
+                        ["WhatsApp", "Tienda física", "Facebook", "Instagram", "Llamada", "Otro"]
+                    )
+                    c7, c8, c9 = st.columns(3)
+                    producto_n = c7.text_input("Producto de interés *", placeholder="Ej. Torta de vainilla de 1 kg")
+                    asesor_n = c8.text_input("Asesor asignado *")
+                    estado_n = c9.selectbox("Estado inicial", estados_lead, index=0)
+                    registrar = st.form_submit_button("Registrar cliente potencial", use_container_width=True)
+
+                    if registrar:
+                        if not nombre_n.strip() or not apellido_n.strip() or not producto_n.strip() or not asesor_n.strip():
+                            st.error("Completa los campos obligatorios: nombre, apellido, producto de interés y asesor.")
+                        else:
+                            ids_existentes = df_leads["ID cliente"].dropna().astype(str).tolist()
+                            numeros_ids = [
+                                int(re.search(r"(\d+)$", valor).group(1))
+                                for valor in ids_existentes
+                                if re.search(r"(\d+)$", valor)
+                            ]
+                            siguiente_id = max(numeros_ids, default=0) + 1
+                            nuevo_id = f"CLI-{siguiente_id:04d}"
+                            nuevo_lead = {
+                                "ID cliente": nuevo_id,
+                                "Nombre": nombre_n.strip(),
+                                "Apellido": apellido_n.strip(),
+                                "Celular": celular_n.strip(),
+                                "Correo electrónico": correo_n.strip(),
+                                "Fecha de registro": pd.Timestamp(fecha_n),
+                                "Canal de contacto": canal_n,
+                                "Producto de interés": producto_n.strip(),
+                                "Asesor asignado": asesor_n.strip(),
+                                "Estado": estado_n
+                            }
+                            st.session_state["crm_leads"] = pd.concat(
+                                [df_leads, pd.DataFrame([nuevo_lead])],
+                                ignore_index=True
+                            )
+                            st.success(f"Cliente potencial registrado correctamente con el ID {nuevo_id}.")
+                            st.rerun()
+
+            st.divider()
+            st.subheader("Estado y seguimiento de clientes potenciales")
+            st.caption("Edita directamente la información y el estado de cada lead. Los estados disponibles son Pendiente, Descartado, Contactado, Cotizado y Venta.")
+
+            # Resumen calculado sobre todos los registros, no solo sobre los filtrados.
+            k1, k2, k3, k4, k5 = st.columns(5)
+            k1.metric("Total de leads", len(df_leads))
+            for columna_kpi, estado_kpi in zip([k2, k3, k4, k5], estados_lead[:4]):
+                columna_kpi.metric(estado_kpi, int((df_leads["Estado"] == estado_kpi).sum()))
+            st.metric("Leads en Venta", int((df_leads["Estado"] == "Venta").sum()))
+
+            df_edicion = df_leads.copy()
+            df_edicion["Cliente"] = (
+                df_edicion["Nombre"].fillna("").astype(str).str.strip()
+                + " " +
+                df_edicion["Apellido"].fillna("").astype(str).str.strip()
+            ).str.strip()
+            orden_columnas = [
+                "ID cliente", "Cliente", "Nombre", "Apellido", "Celular",
+                "Correo electrónico", "Fecha de registro", "Canal de contacto",
+                "Producto de interés", "Asesor asignado", "Estado"
+            ]
+            df_edicion = df_edicion[orden_columnas]
+
+            st.markdown("#### Buscar y filtrar registros")
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                buscar_lead = st.text_input("Buscar por ID o nombre", key="crm_buscar_lead")
+            with f2:
+                filtro_estado_lead = st.selectbox("Filtrar por estado", ["Todos"] + estados_lead, key="crm_filtro_estado")
+            with f3:
+                asesores_lead = ["Todos"] + sorted(df_leads["Asesor asignado"].dropna().astype(str).unique().tolist())
+                filtro_asesor_lead = st.selectbox("Filtrar por asesor", asesores_lead, key="crm_filtro_asesor")
+
+            vista_leads = df_edicion.copy()
+            if buscar_lead.strip():
+                mascara = (
+                    vista_leads["ID cliente"].astype(str).str.contains(buscar_lead.strip(), case=False, na=False)
+                    | vista_leads["Cliente"].astype(str).str.contains(buscar_lead.strip(), case=False, na=False)
                 )
-                busqueda_id = st.text_input(
-                    "Buscar por ID del cliente",
-                    placeholder="Escribe el ID o parte del ID",
-                    key="crm_busqueda_id"
-                ) if columna_id else None
-                filtros = st.columns(4)
-                with filtros[0]:
-                    estado = filtro_opciones(df, "Estado", "Estado del lead")
-                with filtros[1]:
-                    asesor = filtro_opciones(df, "Asesor asignado", "Asesor")
-                with filtros[2]:
-                    producto = filtro_opciones(df, "Producto de interés", "Producto")
-                with filtros[3]:
-                    cliente = filtro_opciones(df, "Cliente", "Cliente")
-                for col, val in [("Estado", estado), ("Asesor asignado", asesor), ("Producto de interés", producto), ("Cliente", cliente)]:
-                    df = aplicar_filtro(df, col, val)
-                if columna_id and busqueda_id:
-                    df = df[df[columna_id].astype(str).str.contains(busqueda_id.strip(), case=False, na=False)]
-                st.metric("Leads encontrados", f"{len(df):,}")
-                mostrar_tabla(df)
-                st.markdown("#### Distribución de leads por estado")
-                if "Estado" in df.columns:
-                    conteo = df["Estado"].fillna("Sin estado").value_counts().rename_axis("Estado").reset_index(name="Cantidad")
-                    grafico_barras(conteo, "Estado", "Cantidad", "Leads por estado")
-                if "Asesor asignado" in df.columns:
-                    st.markdown("#### Leads por asesor")
-                    conteo = df["Asesor asignado"].value_counts().rename_axis("Asesor").reset_index(name="Cantidad")
-                    grafico_barras(conteo, "Asesor", "Cantidad", "Leads asignados por asesor")
-            else:
-                st.warning("No se encontraron registros en la hoja Clientes.")
+                vista_leads = vista_leads[mascara]
+            if filtro_estado_lead != "Todos":
+                vista_leads = vista_leads[vista_leads["Estado"] == filtro_estado_lead]
+            if filtro_asesor_lead != "Todos":
+                vista_leads = vista_leads[vista_leads["Asesor asignado"].astype(str) == filtro_asesor_lead]
+
+            st.caption("Puedes modificar los datos directamente en la tabla. El ID y el nombre consolidado son campos de solo lectura.")
+            edited_leads = st.data_editor(
+                vista_leads,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="fixed",
+                key=f"crm_editor_leads_{len(df_leads)}",
+                disabled=["ID cliente", "Cliente"],
+                column_config={
+                    "Estado": st.column_config.SelectboxColumn("Estado", options=estados_lead, required=True),
+                    "Fecha de registro": st.column_config.DateColumn("Fecha de registro", format="DD/MM/YYYY"),
+                    "Canal de contacto": st.column_config.SelectboxColumn(
+                        "Canal de contacto",
+                        options=["WhatsApp", "Tienda física", "Facebook", "Instagram", "Llamada", "Otro"]
+                    )
+                }
+            )
+
+            if st.button("Guardar cambios de la tabla", key="crm_guardar_edicion", use_container_width=True):
+                actualizado = df_leads.copy()
+                for indice in edited_leads.index:
+                    for columna in columnas_leads:
+                        if columna in edited_leads.columns and columna != "ID cliente":
+                            actualizado.loc[indice, columna] = edited_leads.loc[indice, columna]
+                st.session_state["crm_leads"] = actualizado.reset_index(drop=True)
+                st.success("Los cambios de los clientes se actualizaron en la sesión.")
+                st.rerun()
+
+            st.divider()
+            st.subheader("Distribución de leads")
+            conteo_estados = (
+                df_leads["Estado"].value_counts()
+                .reindex(estados_lead, fill_value=0)
+                .rename_axis("Estado").reset_index(name="Cantidad")
+            )
+            grafico_barras(conteo_estados, "Estado", "Cantidad", "Clientes potenciales por estado")
+            if not df_leads.empty and "Asesor asignado" in df_leads.columns:
+                conteo_asesores = (
+                    df_leads["Asesor asignado"].fillna("Sin asesor")
+                    .value_counts().rename_axis("Asesor").reset_index(name="Cantidad")
+                )
+                grafico_barras(conteo_asesores, "Asesor", "Cantidad", "Leads asignados por asesor")
+
+            st.divider()
+            if st.button("💾 Guardar gestión de leads en el Excel", key="crm_guardar_excel", use_container_width=True):
+                try:
+                    libro_leads = openpyxl.load_workbook(BytesIO(bytes_actuales()), data_only=False)
+                    if "Clientes" not in libro_leads.sheetnames:
+                        ws_leads = libro_leads.create_sheet("Clientes")
+                        for j, encabezado in enumerate(columnas_leads, start=1):
+                            ws_leads.cell(3, j).value = encabezado
+                    else:
+                        ws_leads = libro_leads["Clientes"]
+
+                    # Actualiza la hoja Clientes respetando los encabezados y el formato existente.
+                    ultima_fila = max(ws_leads.max_row, len(df_leads) + 3)
+                    for fila_excel in range(4, ultima_fila + 1):
+                        for col_excel in range(1, len(columnas_leads) + 1):
+                            ws_leads.cell(fila_excel, col_excel).value = None
+
+                    for i, (_, registro) in enumerate(df_leads.iterrows(), start=4):
+                        for j, columna in enumerate(columnas_leads, start=1):
+                            valor = registro[columna]
+                            if pd.isna(valor):
+                                valor = None
+                            elif columna == "Fecha de registro" and valor is not None:
+                                valor = pd.to_datetime(valor).to_pydatetime()
+                            elif columna != "Fecha de registro" and valor is not None:
+                                valor = str(valor)
+                            ws_leads.cell(i, j).value = valor
+
+                    guardar_libro_en_sesion(libro_leads)
+                    st.success("La hoja Clientes del Excel se actualizó correctamente. Descarga el Excel actualizado para conservar los nuevos registros.")
+                    st.download_button(
+                        "⬇️ Descargar Excel con la gestión de leads",
+                        data=bytes_actuales(),
+                        file_name="PASTELPAN_ERP_con_leads_actualizados.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="crm_descargar_excel"
+                    )
+                except Exception as error:
+                    st.error(f"No se pudo actualizar el Excel: {error}")
+
+            st.info("Importante: los registros y cambios se mantienen durante la sesión activa. Para conservarlos después de cerrar la aplicación o reiniciar Streamlit Cloud, descarga el Excel actualizado y vuelve a cargarlo en la siguiente sesión.")
         elif opcion == "Atención al cliente":
             st.subheader("Registro de atención al cliente")
             df = limpiar_df(hoja_df("Atención al cliente", 3, 4, 1839, 1, 10))
